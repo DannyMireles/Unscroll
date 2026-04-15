@@ -1,15 +1,12 @@
 import SwiftUI
+import UIKit
 
 struct RootView: View {
     @EnvironmentObject private var permissionManager: ScreenTimePermissionManager
     @EnvironmentObject private var unlockCoordinator: UnlockCoordinator
     @State private var showSuccessAlert = false
     @State private var grantedMinutes = 0
-    private let logPrefix = "[UnscrollDebug][RootView]"
-
-    private func log(_ message: String) {
-        NSLog("\(logPrefix) \(message)")
-    }
+    @State private var completedLock: AppLock?
 
     var body: some View {
         ZStack {
@@ -32,6 +29,7 @@ struct RootView: View {
                 Task {
                     let granted = await unlockCoordinator.completeUnlock(for: lock)
                     grantedMinutes = granted
+                    completedLock = lock
                     Haptics.celebrationDing()
                     withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
                         showSuccessAlert = true
@@ -40,16 +38,9 @@ struct RootView: View {
             }
             .interactiveDismissDisabled()
         }
-        // Re-check for a pending unlock once the view hierarchy is fully mounted.
-        // SwiftUI can silently drop a sheet that is set before the first render cycle
-        // completes; deferring one tick via .task guarantees the sheet binding is live.
         .task {
             await Task.yield()
-            log("initial .task fired; consumePendingUnlock")
             unlockCoordinator.consumePendingUnlock()
-        }
-        .onChange(of: unlockCoordinator.activeLock?.id) { lockID in
-            log("activeLock changed -> \(lockID?.uuidString ?? "nil")")
         }
     }
 
@@ -76,6 +67,10 @@ struct RootView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
+                if let lock = completedLock {
+                    openAppButton(for: lock)
+                }
+
                 PrimaryButton(title: "Continue") {
                     dismissSuccessOverlay()
                 }
@@ -83,6 +78,21 @@ struct RootView: View {
             .glassCard()
             .padding(.horizontal, 28)
         }
+    }
+
+    private func openAppButton(for lock: AppLock) -> some View {
+        Button {
+            dismissSuccessOverlay()
+            AppLaunchHelper.openTargetApp(for: lock)
+        } label: {
+            HStack(spacing: 6) {
+                Text("Take Me to \(lock.appDisplayName)")
+                Image(systemName: "arrow.up.right")
+            }
+            .font(.body.weight(.semibold))
+            .foregroundStyle(AppTheme.accent)
+        }
+        .buttonStyle(.plain)
     }
 
     private func dismissSuccessOverlay() {

@@ -19,6 +19,8 @@
 		208B5A33EE57496C2440BE8B /* AppGroupFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF2FDFDC35A3436206D7A4FD /* AppGroupFile.swift */; };
 		225D33F54CC5B45F139B81CB /* UnlockRuntimeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD794F9BFE089C4AB360A727 /* UnlockRuntimeState.swift */; };
 		2331E5AA26594C5E6A1491E4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBBC7CD630D3E9D4817383A8 /* RootView.swift */; };
+		A1B2C3D4E5F60718293A4B5C /* AppLaunchHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* AppLaunchHelper.swift */; };
+		B2C3D4E5F60718293A4B5C6D /* LockStore+PopularApps.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C6E /* LockStore+PopularApps.swift */; };
 		2670B492940EB8BEC4FEA04C /* LockStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1346026CFFB971D5C9FE37 /* LockStore.swift */; };
 		28C1AE2251DE9FB1F821E331 /* SharedLockFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4F60B4430ACEF601D0944E9 /* SharedLockFileStore.swift */; };
 		2EDB9AF59319ADDEC3844293 /* EmptyLocksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC87A9838670CA55602B871 /* EmptyLocksView.swift */; };
@@ -60,7 +62,9 @@
 		AB9C9CDD6BAFB0BA61FFB5DC /* UnlockCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6439ACE276032ABFC3BDFB8 /* UnlockCoordinator.swift */; };
 		B99DC94C13139BA3F5984F2C /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DAE8977AED90220BD9385972 /* Foundation.framework */; };
 		BAF95D44F8D7422F9E7F3101 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BAF95D44F8D7422F9E7F3102 /* Assets.xcassets */; };
+		BB22CC33DD44EE55FF660011 /* ShieldNotifyFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF66 /* ShieldNotifyFlag.swift */; };
 		C8F26D79EAB74D8592DCA9A4 /* ShieldConfigurationExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86455032F25D1F95F1FB0A1E /* ShieldConfigurationExtension.swift */; };
+		CC33DD44EE55FF6600112233 /* ShieldNotifyFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF66 /* ShieldNotifyFlag.swift */; };
 		CEB493182FFD40CAD942B2BF /* UnlockFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB5B6420733B6C725DB462E8 /* UnlockFlowView.swift */; };
 		D13064244F92D643D4E696D6 /* PatternMemoryUnlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D1B8F8BE783D7C03E03DFE7 /* PatternMemoryUnlockView.swift */; };
 		D71BA23D7EC859982627E7B0 /* AppConstants.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AA19953A4369ED9712741A /* AppConstants.swift */; };
@@ -73,8 +77,6 @@
 		EB787A52A20F532B7CB32604 /* SharedLockFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4F60B4430ACEF601D0944E9 /* SharedLockFileStore.swift */; };
 		EBDD82791E21B607C3805047 /* BreathingEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89B6B7C7CC1511671C321723 /* BreathingEngine.swift */; };
 		FAC829944AFFE5D1FD8CABDD /* AppGroupFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF2FDFDC35A3436206D7A4FD /* AppGroupFile.swift */; };
-		BB22CC33DD44EE55FF660011 /* ShieldNotifyFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF66 /* ShieldNotifyFlag.swift */; };
-		CC33DD44EE55FF6600112233 /* ShieldNotifyFlag.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB22CC33DD44EE55FF66 /* ShieldNotifyFlag.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -146,17 +148,19 @@
 		9AC584E42128C6D97466D38A /* UnlockMethod.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = UnlockMethod.swift; path = Unscroll/Models/UnlockMethod.swift; sourceTree = "<group>"; };
 		A27A95F2284B9D7A7B5FFAB1 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = UnscrollShieldActionExtension/Info.plist; sourceTree = "<group>"; };
 		A504286FB39021E33172AF3F /* HomeView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HomeView.swift; path = Unscroll/Views/Home/HomeView.swift; sourceTree = "<group>"; };
+		AA11BB22CC33DD44EE55FF66 /* ShieldNotifyFlag.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShieldNotifyFlag.swift; path = Unscroll/Persistence/ShieldNotifyFlag.swift; sourceTree = "<group>"; };
 		B23674E6AB561FA42AB51D4B /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = Unscroll/Resources/Info.plist; sourceTree = "<group>"; };
 		B4B944C942F95761DA582FE2 /* ScreenTimePermissionManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScreenTimePermissionManager.swift; path = Unscroll/Permissions/ScreenTimePermissionManager.swift; sourceTree = "<group>"; };
 		BAF95D44F8D7422F9E7F3102 /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Unscroll/Resources/Assets.xcassets; sourceTree = "<group>"; };
 		BD5C8F41D7D3FAED52847BEA /* Unscroll.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = Unscroll.entitlements; path = Unscroll/Resources/Unscroll.entitlements; sourceTree = "<group>"; };
 		BD794F9BFE089C4AB360A727 /* UnlockRuntimeState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = UnlockRuntimeState.swift; path = Unscroll/Models/UnlockRuntimeState.swift; sourceTree = "<group>"; };
 		BF2FDFDC35A3436206D7A4FD /* AppGroupFile.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppGroupFile.swift; path = Unscroll/Persistence/AppGroupFile.swift; sourceTree = "<group>"; };
-		AA11BB22CC33DD44EE55FF66 /* ShieldNotifyFlag.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShieldNotifyFlag.swift; path = Unscroll/Persistence/ShieldNotifyFlag.swift; sourceTree = "<group>"; };
 		C17C364C741E1DAD8B66CF25 /* UnscrollMonitorExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = UnscrollMonitorExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C362D6548F615003F3D90F72 /* Unscroll.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Unscroll.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CA0624D80EC7BA135905E3EB /* ShieldActionExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShieldActionExtension.swift; path = UnscrollShieldActionExtension/ShieldActionExtension.swift; sourceTree = "<group>"; };
 		CBBC7CD630D3E9D4817383A8 /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RootView.swift; path = Unscroll/App/RootView.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5D /* AppLaunchHelper.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppLaunchHelper.swift; path = Unscroll/App/AppLaunchHelper.swift; sourceTree = "<group>"; };
+		B2C3D4E5F60718293A4B5C6E /* LockStore+PopularApps.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = "LockStore+PopularApps.swift"; path = "Unscroll/Persistence/LockStore+PopularApps.swift"; sourceTree = "<group>"; };
 		D09A09A2426F0380E9603C40 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = OnboardingView.swift; path = Unscroll/Views/Onboarding/OnboardingView.swift; sourceTree = "<group>"; };
 		D2151F9027AFA1F9FD90E10F /* PatternMemoryEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PatternMemoryEngine.swift; path = Unscroll/UnlockEngine/PatternMemoryEngine.swift; sourceTree = "<group>"; };
 		D45B7C6CC8FF0E243BD0D929 /* RestrictionEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RestrictionEngine.swift; path = Unscroll/ScreenTime/RestrictionEngine.swift; sourceTree = "<group>"; };
@@ -237,6 +241,7 @@
 				54503B6EE72967BDE4CDC972 /* Frameworks */,
 				36AA19953A4369ED9712741A /* AppConstants.swift */,
 				CBBC7CD630D3E9D4817383A8 /* RootView.swift */,
+				A1B2C3D4E5F60718293A4B5D /* AppLaunchHelper.swift */,
 				E44CF601A5AE1D2CCFAAEF60 /* UnscrollApp.swift */,
 				8C4980C8B7D4117CC0D73DC8 /* AppTokenIconView.swift */,
 				D8A0667F2C78580D5D58184C /* Haptics.swift */,
@@ -251,6 +256,7 @@
 				AA11BB22CC33DD44EE55FF66 /* ShieldNotifyFlag.swift */,
 				F985EE81CA12FE39BE2206BA /* Coding.swift */,
 				3E1346026CFFB971D5C9FE37 /* LockStore.swift */,
+				B2C3D4E5F60718293A4B5C6E /* LockStore+PopularApps.swift */,
 				6ABDA0EEA25C2D3047899A1C /* RuntimeStateStore.swift */,
 				F4F60B4430ACEF601D0944E9 /* SharedLockFileStore.swift */,
 				B23674E6AB561FA42AB51D4B /* Info.plist */,
@@ -465,6 +471,7 @@
 			files = (
 				D71BA23D7EC859982627E7B0 /* AppConstants.swift in Sources */,
 				2331E5AA26594C5E6A1491E4 /* RootView.swift in Sources */,
+				A1B2C3D4E5F60718293A4B5C /* AppLaunchHelper.swift in Sources */,
 				5BDA87ADC80E9F877D5C454D /* UnscrollApp.swift in Sources */,
 				5E6D658582CA47CE7019FF4E /* AppTokenIconView.swift in Sources */,
 				50CCEB0DB3D2686EBB600B8C /* Haptics.swift in Sources */,
@@ -478,6 +485,7 @@
 				47D01C265BA12E6A203D06B5 /* AppGroupFile.swift in Sources */,
 				05B41567626EFC7AED9045FD /* Coding.swift in Sources */,
 				2670B492940EB8BEC4FEA04C /* LockStore.swift in Sources */,
+				B2C3D4E5F60718293A4B5C6D /* LockStore+PopularApps.swift in Sources */,
 				0DB38A6752ACB2BD75F48C4A /* RuntimeStateStore.swift in Sources */,
 				28C1AE2251DE9FB1F821E331 /* SharedLockFileStore.swift in Sources */,
 				3DD0A208D130BF64E7E46B9D /* RestrictionEngine.swift in Sources */,
@@ -558,6 +566,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = UnscrollShieldActionExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Unscroll by Selerim";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -569,6 +578,10 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				VALIDATE_PRODUCT = YES;
@@ -711,6 +724,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Unscroll/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Unscroll by Selerim";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -739,6 +753,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Unscroll/Resources/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Unscroll by Selerim";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -766,6 +781,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = UnscrollShieldActionExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Unscroll by Selerim";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -777,6 +793,10 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 			};

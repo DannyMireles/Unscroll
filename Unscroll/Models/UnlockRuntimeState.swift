@@ -73,11 +73,4 @@ struct UnlockRuntimeState: Codable, Equatable {
         lastShieldAction = try container.decodeIfPresent(ShieldActionKind.self, forKey: .lastShieldAction)
         lastShieldActionAt = try container.decodeIfPresent(Date.self, forKey: .lastShieldActionAt)
     }
-
-    var debugSummary: String {
-        let exceeded = exceededLockIDs.map(\.uuidString).sorted()
-        let tempUnlocks = temporaryUnlocks.keys.map(\.uuidString).sorted()
-        let granted = unlockGrantedAt.keys.map(\.uuidString).sorted()
-        return "pendingID=\(pendingUnlockLockID?.uuidString ?? "nil"), pendingTriggered=\(pendingUnlockTriggered), suppressNextPrompt=\(suppressNextPendingPrompt), lastShieldAction=\(lastShieldAction?.rawValue ?? "nil"), lastShieldActionAt=\(lastShieldActionAt?.description ?? "nil"), exceeded=\(exceeded), temporaryUnlocks=\(tempUnlocks), unlockGrantedAt=\(granted)"
-    }
 }

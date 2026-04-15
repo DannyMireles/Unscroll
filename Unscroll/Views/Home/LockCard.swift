@@ -5,36 +5,49 @@ struct LockCard: View {
     let onEdit: () -> Void
     let onPause: () -> Void
     let onDelete: () -> Void
+    let onOpenApp: () -> Void
 
     var body: some View {
         let rewardText = lock.unlockRewardMode == .incrementalByLimit ? "Incremental time" : "Rest of day"
 
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 14) {
-                AppTokenIconView(lock: lock)
+            Button(action: onOpenApp) {
+                HStack(spacing: 14) {
+                    AppTokenIconView(lock: lock)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(lock.appDisplayName)
-                            .font(.headline.weight(.medium))
-                            .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text(lock.appDisplayName)
+                                .font(.headline.weight(.medium))
+                                .lineLimit(1)
+                                .foregroundStyle(.primary)
 
-                        if lock.isPaused {
-                            Text("Paused")
-                                .font(.caption.weight(.medium))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Color.secondary.opacity(0.16), in: Capsule())
+                            if lock.isPaused {
+                                Text("Paused")
+                                    .font(.caption.weight(.medium))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.secondary.opacity(0.16), in: Capsule())
+                            }
                         }
+
+                        Text("\(lock.limitLabel) daily - \(lock.unlockMethod.title) - \(rewardText)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
                     }
 
-                    Text("\(lock.limitLabel) daily - \(lock.unlockMethod.title) - \(rewardText)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+                    Spacer(minLength: 8)
 
-                Spacer()
+                    Image(systemName: "arrow.up.right.circle.fill")
+                        .font(.title3)
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(AppTheme.accent.opacity(0.85))
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(lock.appDisplayName)")
 
             HStack(spacing: 10) {
                 LockActionButton(title: "Edit", systemImage: "slider.horizontal.3", action: onEdit)

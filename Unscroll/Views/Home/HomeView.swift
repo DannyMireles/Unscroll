@@ -101,7 +101,8 @@ struct HomeView: View {
                             lock: lock,
                             onEdit: { editingLock = lock },
                             onPause: { Task { await lockStore.togglePause(lock) } },
-                            onDelete: { Task { await lockStore.delete(lock) } }
+                            onDelete: { Task { await lockStore.delete(lock) } },
+                            onOpenApp: { AppLaunchHelper.openTargetApp(for: lock) }
                         )
                     }
                 }

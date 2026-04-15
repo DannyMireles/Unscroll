@@ -30,6 +30,9 @@ struct AppLock: Identifiable, Codable, Equatable {
     var id: UUID
     var selection: FamilyActivitySelection
     var appDisplayName: String
+    /// Optional explicit URL scheme for opening the target app (e.g. "tiktok", "fb").
+    /// If nil, the app falls back to name-based mapping heuristics.
+    var launchURLScheme: String?
     var dailyLimitMinutes: Int
     var unlockMethod: UnlockMethod
     var unlockRewardMode: UnlockRewardMode
@@ -41,6 +44,7 @@ struct AppLock: Identifiable, Codable, Equatable {
         id: UUID = UUID(),
         selection: FamilyActivitySelection,
         appDisplayName: String,
+        launchURLScheme: String? = nil,
         dailyLimitMinutes: Int,
         unlockMethod: UnlockMethod,
         unlockRewardMode: UnlockRewardMode = .incrementalByLimit,
@@ -51,6 +55,7 @@ struct AppLock: Identifiable, Codable, Equatable {
         self.id = id
         self.selection = selection
         self.appDisplayName = appDisplayName
+        self.launchURLScheme = launchURLScheme
         self.dailyLimitMinutes = dailyLimitMinutes
         self.unlockMethod = unlockMethod
         self.unlockRewardMode = unlockRewardMode
@@ -63,6 +68,7 @@ struct AppLock: Identifiable, Codable, Equatable {
         case id
         case selection
         case appDisplayName
+        case launchURLScheme
         case dailyLimitMinutes
         case unlockMethod
         case unlockRewardMode
@@ -76,6 +82,7 @@ struct AppLock: Identifiable, Codable, Equatable {
         id = try container.decode(UUID.self, forKey: .id)
         selection = try container.decode(FamilyActivitySelection.self, forKey: .selection)
         appDisplayName = try container.decode(String.self, forKey: .appDisplayName)
+        launchURLScheme = try container.decodeIfPresent(String.self, forKey: .launchURLScheme)
         dailyLimitMinutes = try container.decode(Int.self, forKey: .dailyLimitMinutes)
         unlockMethod = try container.decode(UnlockMethod.self, forKey: .unlockMethod)
         unlockRewardMode = try container.decodeIfPresent(UnlockRewardMode.self, forKey: .unlockRewardMode) ?? .incrementalByLimit

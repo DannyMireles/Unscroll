@@ -45,32 +45,26 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 }
 
 private enum ShieldOpenNotifier {
-    private static let logPrefix = "[UnscrollDebug][ShieldConfigurationExtension]"
     private static let appGroupID = "group.com.selerim.unscroll"
     private static let lastSentKey = "shield.open.notification.lastSentAt"
     private static let cooldownSeconds: TimeInterval = 20
 
     static func scheduleIfNeeded() {
         guard let defaults = UserDefaults(suiteName: appGroupID) else {
-            NSLog("\(logPrefix) notifier: failed to create UserDefaults for group")
             return
         }
 
-        // Only after a real threshold event (see ShieldNotifyFlag.arm in monitor extension).
         guard ShieldNotifyFlag.isPending else {
-            NSLog("\(logPrefix) notifier: no pending flag, skip")
             return
         }
 
         let now = Date()
         if let lastSent = defaults.object(forKey: lastSentKey) as? Date,
            now.timeIntervalSince(lastSent) < cooldownSeconds {
-            NSLog("\(logPrefix) notifier: skipped due to cooldown (flag left for retry)")
             return
         }
 
         guard ShieldNotifyFlag.consumeIfArmed() else {
-            NSLog("\(logPrefix) notifier: consume failed, skip")
             return
         }
         defaults.set(now, forKey: lastSentKey)
@@ -90,12 +84,8 @@ private enum ShieldOpenNotifier {
 
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: [request.identifier])
-        center.add(request) { error in
-            if let error {
-                NSLog("\(logPrefix) notifier: schedule failed error=\(error)")
-            } else {
-                NSLog("\(logPrefix) notifier: scheduled")
-            }
+        center.getNotificationSettings { _ in
+            center.add(request) { _ in }
         }
     }
 }
