@@ -8,11 +8,16 @@ struct RootView: View {
     @EnvironmentObject private var lockStore: LockStore
     @EnvironmentObject private var permissionManager: ScreenTimePermissionManager
     @EnvironmentObject private var unlockCoordinator: UnlockCoordinator
-    @AppStorage("themePreference") private var themePreference = ThemePreference.system.rawValue
+    @AppStorage("themePreference") private var themePreference = ThemePreference.light.rawValue
     @State private var showSuccessAlert = false
+    @State private var showSuccessConfetti = false
+    @State private var successConfettiBurstID = 0
     @State private var grantedMinutes = 0
     @State private var completedLock: AppLock?
     @State private var unavailableLock: AppLock?
+    @State private var linkSetupLock: AppLock?
+    @State private var isPreparingOpenApp = false
+    @State private var identityReportRefreshID = 0
 
     private var preferredScheme: ColorScheme? {
         ThemePreference(rawValue: themePreference)?.colorScheme
@@ -33,25 +38,39 @@ struct RootView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
                     .zIndex(10)
             }
+
+            if let linkSetupLock {
+                AppLinkSetupView(
+                    lock: linkSetupLock,
+                    onLinked: retryOpenAfterLink,
+                    onCancel: { self.linkSetupLock = nil }
+                )
+                .id(linkSetupLock.id)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(11)
+            }
         }
         .dismissKeyboardOnBackgroundTap()
         .sheet(item: $unlockCoordinator.activeLock) { lock in
             UnlockFlowView(lock: lock) {
                 Task {
                     let granted = await unlockCoordinator.completeUnlock(for: lock)
+                    await lockStore.load()
+                    lockStore.reconcileDisplayNames()
                     grantedMinutes = granted
-                    completedLock = lock
+                    completedLock = lockStore.locks.first(where: { $0.id == lock.id }) ?? lock
                     Haptics.celebrationDing()
                     withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
                         showSuccessAlert = true
                     }
+                    triggerSuccessConfetti()
                 }
             }
             .interactiveDismissDisabled()
         }
         .preferredColorScheme(preferredScheme)
         .alert(
-            unavailableLock.map { "Couldn't open \(displayNameForAlert($0))" } ?? "Couldn't open the app",
+            unavailableLock.map(unavailableTitle(for:)) ?? "Apps unlocked",
             isPresented: Binding(
                 get: { unavailableLock != nil },
                 set: { if !$0 { unavailableLock = nil } }
@@ -59,7 +78,7 @@ struct RootView: View {
         ) {
             Button("OK", role: .cancel) { unavailableLock = nil }
         } message: {
-            Text("You're all set — just open it from your Home Screen. To open it in one tap next time, set the app's name in Edit.")
+            Text(unavailableLock.map(unavailableMessage(for:)) ?? "")
         }
         .task {
             await Task.yield()
@@ -71,7 +90,8 @@ struct RootView: View {
             lockStore.reconcileDisplayNames()
         }
         .onReceive(NotificationCenter.default.publisher(for: .unscrollRefreshIdentityReport)) { _ in
-            // After an open attempt, pick up any identity the Shield extension captured.
+            // Remount the hidden identity readers, then pick up anything Screen Time exposed.
+            identityReportRefreshID += 1
             Task {
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 lockStore.reconcileDisplayNames()
@@ -83,27 +103,35 @@ struct RootView: View {
         ZStack {
             ModalBackdrop(onTap: dismissSuccessOverlay)
 
+            if showSuccessConfetti {
+                ConfettiView(pieceCount: 64, start: .point(UnitPoint(x: 0.5, y: 0.38)))
+                    .id(successConfettiBurstID)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+            }
+
             ModalCard {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "checkmark")
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 34, height: 34)
-                            .background(AppTheme.accent, in: Circle())
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Great job")
-                                .font(.headline.weight(.semibold))
-                            Text(successMessage)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        Spacer(minLength: 0)
+                VStack(spacing: 16) {
+                    Button {
+                        Haptics.celebrationDing()
+                        triggerSuccessConfetti()
+                    } label: {
+                        BrandLogoView(size: 76)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Celebrate")
+
+                    VStack(spacing: 4) {
+                        Text("Great job")
+                            .font(.headline.weight(.semibold))
+                        Text(successMessage)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity)
 
                     HStack(spacing: 10) {
                         if let lock = completedLock, lock.canDeepLink {
@@ -116,10 +144,33 @@ struct RootView: View {
                     }
                 }
             }
+            .overlay(alignment: .topLeading) {
+                if let lock = completedLock,
+                   lock.canDeepLink,
+                   let token = lock.selection.applicationTokens.first {
+                    ZStack(alignment: .topLeading) {
+                        ApplicationTokenNameCapture(token: token) { token, name in
+                            applyCapturedAppName(name, token: token, for: lock)
+                        }
+                        .id(token.hashValue)
+                        .frame(width: 260, height: 44)
+
+                        AppIdentityReportCapture(selection: lock.selection)
+                    }
+                    .id("\(token.hashValue)-\(identityReportRefreshID)")
+                }
+            }
         }
     }
 
     private var successMessage: String {
+        if let completedLock, !completedLock.canDeepLink {
+            if completedLock.unlockRewardMode == .unlockedRestOfDay {
+                return "Your apps are unlocked for today."
+            }
+            return "Your apps are unlocked for \(grantedMinutes) minute\(grantedMinutes == 1 ? "" : "s")."
+        }
+
         if completedLock?.unlockRewardMode == .unlockedRestOfDay {
             return "Unlocked for the rest of today."
         }
@@ -127,11 +178,61 @@ struct RootView: View {
     }
 
     private func openAppButton(for lock: AppLock) -> some View {
-        ModalPrimaryButton(title: "Open App", systemImage: "arrow.up.right") {
+        ModalPrimaryButton(
+            title: isPreparingOpenApp ? "Linking..." : "Open App",
+            systemImage: "arrow.up.right",
+            isDisabled: isPreparingOpenApp
+        ) {
+            isPreparingOpenApp = true
+            Task {
+                await lockStore.load()
+                lockStore.reconcileDisplayNames()
+                openWhenReady(lock)
+            }
+        }
+    }
+
+    private func openWhenReady(_ lock: AppLock) {
+        let currentLock = lockStore.locks.first(where: { $0.id == lock.id }) ?? lock
+        guard currentLock.canDeepLink else {
+            isPreparingOpenApp = false
             dismissSuccessOverlay()
-            let currentLock = lockStore.locks.first(where: { $0.id == lock.id }) ?? lock
-            AppLaunchHelper.openTargetApp(for: currentLock) {
+            handleOpenUnavailable(for: currentLock)
+            return
+        }
+
+        isPreparingOpenApp = true
+        AppLaunchHelper.openTargetApp(for: currentLock) {
+            DispatchQueue.main.async {
+                isPreparingOpenApp = false
+                dismissSuccessOverlay()
                 handleOpenUnavailable(for: currentLock)
+            }
+        }
+    }
+
+    private func applyCapturedAppName(_ name: String, token: ApplicationToken, for lock: AppLock) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !LockStore.isGenericDisplayName(trimmed) else { return }
+
+        AppIdentityStore.record(token: token, bundleID: nil, displayName: trimmed)
+        let resolvedScheme = LockStore.launchSchemes(forName: trimmed).first
+            ?? LockStore.normalizeScheme(lock.launchURLScheme)
+
+        Task {
+            var updated = lockStore.locks.first(where: { $0.id == lock.id }) ?? lock
+            guard updated.appDisplayName != trimmed || updated.launchURLScheme != resolvedScheme else { return }
+            updated.appDisplayName = trimmed
+            updated.launchURLScheme = resolvedScheme
+            await lockStore.update(updated)
+            if completedLock?.id == lock.id {
+                completedLock = updated
+            }
+            NSLog("🔗 Unscroll: captured unlock app label '%@' scheme=%@", trimmed, resolvedScheme ?? "")
+            await lockStore.resolveAndApplyAppStoreIdentity(lockID: updated.id, token: token, name: trimmed)
+            if completedLock?.id == lock.id,
+               let refreshed = lockStore.locks.first(where: { $0.id == lock.id }) {
+                completedLock = refreshed
             }
         }
     }
@@ -139,15 +240,57 @@ struct RootView: View {
     private func dismissSuccessOverlay() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
             showSuccessAlert = false
+            showSuccessConfetti = false
+            isPreparingOpenApp = false
+        }
+    }
+
+    private func triggerSuccessConfetti() {
+        successConfettiBurstID += 1
+        withAnimation(.easeIn(duration: 0.12)) {
+            showSuccessConfetti = true
+        }
+
+        let currentID = successConfettiBurstID
+        Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard currentID == successConfettiBurstID else { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                showSuccessConfetti = false
+            }
         }
     }
 
     private func handleOpenUnavailable(for lock: AppLock) {
-        unavailableLock = lock
+        if lock.canDeepLink {
+            linkSetupLock = lock
+        } else {
+            unavailableLock = lock
+        }
+    }
+
+    private func retryOpenAfterLink(_ lock: AppLock) {
+        linkSetupLock = nil
+        completedLock = lock
+        isPreparingOpenApp = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            openWhenReady(lock)
+        }
     }
 
     private func displayNameForAlert(_ lock: AppLock) -> String {
         LockStore.isGenericDisplayName(lock.appDisplayName) ? "the app" : lock.appDisplayName
+    }
+
+    private func unavailableTitle(for lock: AppLock) -> String {
+        lock.canDeepLink ? "Couldn't open \(displayNameForAlert(lock))" : "Apps unlocked"
+    }
+
+    private func unavailableMessage(for lock: AppLock) -> String {
+        if lock.canDeepLink {
+            return "This link needs one quick setup step."
+        }
+        return "Your apps are unlocked. Open any of them from your Home Screen."
     }
 }
 
@@ -260,6 +403,166 @@ struct ModalCard<Content: View>: View {
     }
 }
 
+struct AppLinkSetupView: View {
+    @EnvironmentObject private var lockStore: LockStore
+    @FocusState private var isNameFieldFocused: Bool
+
+    let lock: AppLock
+    let onLinked: (AppLock) -> Void
+    let onCancel: () -> Void
+
+    @State private var appName: String
+    @State private var isResolving = false
+    @State private var errorMessage: String?
+
+    private let chipColumns = [
+        GridItem(.adaptive(minimum: 92), spacing: 8)
+    ]
+
+    init(
+        lock: AppLock,
+        onLinked: @escaping (AppLock) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.lock = lock
+        self.onLinked = onLinked
+        self.onCancel = onCancel
+        _appName = State(initialValue: Self.initialAppName(for: lock))
+    }
+
+    var body: some View {
+        ZStack {
+            ModalBackdrop(onTap: isResolving ? nil : onCancel)
+
+            ModalCard(maxWidth: 370) {
+                VStack(spacing: 16) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "link.badge.plus")
+                            .font(.title2.weight(.semibold))
+                            .foregroundStyle(AppTheme.accentDeep)
+                            .frame(width: 44, height: 44)
+                            .background(AppTheme.accentSoft, in: Circle())
+
+                        VStack(spacing: 4) {
+                            Text("Link this app")
+                                .font(.headline.weight(.semibold))
+                            Text("Type the App Store name once. We'll remember it.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        TextField("TikTok", text: $appName)
+                            .textInputAutocapitalization(.words)
+                            .autocorrectionDisabled()
+                            .submitLabel(.done)
+                            .focused($isNameFieldFocused)
+                            .onSubmit(resolveAppLink)
+                            .font(.headline)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
+                                    .stroke(AppTheme.accent.opacity(0.28), lineWidth: 1)
+                            }
+
+                        LazyVGrid(columns: chipColumns, alignment: .leading, spacing: 8) {
+                            ForEach(Array(LockStore.commonAppNames.prefix(12)), id: \.self) { name in
+                                Button {
+                                    Haptics.softTap()
+                                    appName = name
+                                    resolveAppLink()
+                                } label: {
+                                    Text(name)
+                                        .font(.caption.weight(.semibold))
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.82)
+                                        .foregroundStyle(AppTheme.accentDeep)
+                                        .frame(maxWidth: .infinity, minHeight: 34)
+                                        .padding(.horizontal, 8)
+                                        .background(AppTheme.accentSoft, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(isResolving)
+                            }
+                        }
+                    }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.red)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    HStack(spacing: 10) {
+                        ModalSecondaryButton(title: "Not Now") {
+                            onCancel()
+                        }
+                        .disabled(isResolving)
+
+                        ModalPrimaryButton(
+                            title: isResolving ? "Setting..." : "Set Link",
+                            systemImage: "link",
+                            isDisabled: isResolving || appName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ) {
+                            resolveAppLink()
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                isNameFieldFocused = true
+            }
+        }
+    }
+
+    private static func initialAppName(for lock: AppLock) -> String {
+        LockStore.isGenericDisplayName(lock.appDisplayName) ? "" : lock.appDisplayName
+    }
+
+    private func resolveAppLink() {
+        let trimmed = appName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isResolving else { return }
+        guard lock.canDeepLink, let token = lock.selection.applicationTokens.first else {
+            errorMessage = "This lock has more than one app."
+            Haptics.retry()
+            return
+        }
+
+        isResolving = true
+        errorMessage = nil
+
+        Task {
+            let updated = await lockStore.resolveAndApplyAppStoreIdentity(
+                lockID: lock.id,
+                token: token,
+                name: trimmed
+            )
+
+            await MainActor.run {
+                isResolving = false
+                guard let updated else {
+                    errorMessage = "No match found. Try the App Store name."
+                    Haptics.retry()
+                    return
+                }
+
+                Haptics.success()
+                onLinked(updated)
+            }
+        }
+    }
+}
+
 extension Notification.Name {
     static let unscrollRefreshIdentityReport = Notification.Name("com.selerim.unscroll.refreshIdentityReport")
 }
@@ -332,50 +635,5 @@ private struct KeyboardDismissTapInstaller: UIViewRepresentable {
 extension View {
     func dismissKeyboardOnBackgroundTap() -> some View {
         background(KeyboardDismissTapInstaller())
-    }
-}
-
-/// A clean confirmation shown after a lock is created. It shows the app's real icon + name
-/// (rendered from the token by `Label`) and a short note tailored to whether the lock can
-/// deep-link to a single app.
-struct LockReadyPopup: View {
-    let lock: AppLock
-    var message: String
-    var buttonTitle: String
-    let onDismiss: () -> Void
-
-    var body: some View {
-        ZStack {
-            ModalBackdrop(onTap: onDismiss)
-
-            ModalCard {
-                VStack(spacing: 16) {
-                    AppTokenIconView(lock: lock)
-                        .scaleEffect(1.2)
-                        .padding(.top, 4)
-                        .frame(maxWidth: .infinity)
-
-                    AppTokenTitleView(lock: lock)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .frame(maxWidth: .infinity, alignment: .center)
-
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 4)
-
-                    ModalPrimaryButton(title: buttonTitle) {
-                        onDismiss()
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
     }
 }

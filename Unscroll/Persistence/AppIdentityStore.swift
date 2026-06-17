@@ -15,11 +15,9 @@ struct ResolvedAppIdentity: Codable, Equatable {
 /// bundle id / name) and read by the main app so it can open the correct app after an
 /// unlock — no input required from the user.
 ///
-/// Persistence goes through `UserDefaults(suiteName:)` rather than a raw file write,
-/// because the UI-rendering extension sandbox (ShieldConfiguration / DeviceActivityReport)
-/// is **denied direct file writes** to the App Group container, but is allowed to write via
-/// the preferences path. A best-effort file write is also kept so the main app, Monitor,
-/// and ShieldAction sandboxes (which can write files) stay interoperable.
+/// Persistence tries the shared keychain first, then App Group preferences and a
+/// best-effort App Group file. Different Screen Time sandboxes can deny different
+/// storage paths, so reads merge every store instead of trusting only one.
 enum AppIdentityStore {
     private static let appGroup = "group.com.selerim.unscroll"
     private static let recordsKey = "app-identity-records-v2"
@@ -123,11 +121,23 @@ enum AppIdentityStore {
 
     private static func loadRecords() -> [StoredIdentityRecord] {
         var records: [StoredIdentityRecord] = []
-        var seen = Set<Data>()
+        var indexByTokenData: [Data: Int] = [:]
 
         func merge(_ decoded: [StoredIdentityRecord]) {
-            for record in decoded where seen.insert(record.tokenData).inserted {
-                records.append(record)
+            for record in decoded {
+                guard decodedToken(from: record.tokenData) != nil else { continue }
+
+                if let index = indexByTokenData[record.tokenData] {
+                    let existing = records[index]
+                    records[index] = StoredIdentityRecord(
+                        tokenData: record.tokenData,
+                        bundleID: nonEmpty(record.bundleID) ?? nonEmpty(existing.bundleID),
+                        displayName: nonEmpty(record.displayName) ?? nonEmpty(existing.displayName)
+                    )
+                } else {
+                    indexByTokenData[record.tokenData] = records.count
+                    records.append(record)
+                }
             }
         }
 
@@ -151,7 +161,7 @@ enum AppIdentityStore {
             merge(decoded)
         }
 
-        return records.filter { decodedToken(from: $0.tokenData) != nil }
+        return records
     }
 
     private static func save(_ records: [StoredIdentityRecord]) {
@@ -219,5 +229,10 @@ enum AppIdentityStore {
 
     private static func decodedToken(from data: Data) -> ApplicationToken? {
         try? JSONDecoder().decode(ApplicationToken.self, from: data)
+    }
+
+    private static func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed ?? "").isEmpty ? nil : trimmed
     }
 }

@@ -1,5 +1,6 @@
 import FamilyControls
 import Foundation
+import ManagedSettings
 
 @MainActor
 final class LockStore: ObservableObject {
@@ -18,6 +19,7 @@ final class LockStore: ObservableObject {
         var changed = false
         for index in locks.indices {
             let lock = locks[index]
+            Self.captureSelectionIdentities(lock.selection, source: "lock.reconcile")
             guard lock.selection.applicationTokens.count == 1,
                   let token = lock.selection.applicationTokens.first,
                   let identity = AppIdentityStore.identity(for: token) else { continue }
@@ -59,6 +61,7 @@ final class LockStore: ObservableObject {
         method: UnlockMethod,
         rewardMode: UnlockRewardMode
     ) async -> AppLock {
+        Self.captureSelectionIdentities(selection, source: "lock.add")
         let resolvedName = name.trimmingCharacters(in: .whitespaces).isEmpty
             ? Self.displayName(for: selection)
             : name.trimmingCharacters(in: .whitespaces)
@@ -83,6 +86,46 @@ final class LockStore: ObservableObject {
         updated.launchURLScheme = Self.normalizeScheme(updated.launchURLScheme)
         locks[index] = updated
         await persistAndRefreshScreenTime()
+    }
+
+    @discardableResult
+    func resolveAndApplyAppStoreIdentity(lockID: UUID, token: ApplicationToken, name: String) async -> AppLock? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !Self.isGenericDisplayName(trimmed),
+              let resolved = await Self.resolveAppStoreApp(named: trimmed)
+        else { return nil }
+
+        AppIdentityStore.record(
+            token: token,
+            bundleID: resolved.bundleID,
+            displayName: resolved.displayName
+        )
+
+        guard let index = locks.firstIndex(where: { $0.id == lockID }) else { return nil }
+
+        let scheme = resolved.launchSchemes.first
+            ?? Self.launchSchemes(forBundleID: resolved.bundleID).first
+            ?? Self.launchSchemes(forName: resolved.displayName).first
+            ?? Self.normalizeScheme(locks[index].launchURLScheme)
+
+        var updated = locks[index]
+        let displayName = Self.cleanAppStoreDisplayName(resolved.displayName, fallback: trimmed)
+        if !Self.isGenericDisplayName(displayName) {
+            updated.appDisplayName = displayName
+        }
+        updated.launchURLScheme = scheme
+        updated.updatedAt = Date()
+
+        guard updated != locks[index] else { return locks[index] }
+        locks[index] = updated
+        NSLog(
+            "🌐 Unscroll App Store resolved '%@' -> bundle=%@ scheme=%@",
+            trimmed,
+            resolved.bundleID,
+            scheme ?? "nil"
+        )
+        await persistAndRefreshScreenTime()
+        return updated
     }
 
     func togglePause(_ lock: AppLock) async {
@@ -182,6 +225,8 @@ final class LockStore: ObservableObject {
     }
 
     static func suggestedScheme(for selection: FamilyActivitySelection, fallbackName: String) -> String {
+        captureSelectionIdentities(selection, source: "scheme.selection")
+
         if selection.applicationTokens.count == 1,
            let token = selection.applicationTokens.first,
            let identity = AppIdentityStore.identity(for: token) {
@@ -196,10 +241,33 @@ final class LockStore: ObservableObject {
         }
 
         if let bundleID = inferredBundleID(from: selection),
-           let mapped = popularBundleIDToNameAndScheme[bundleID] {
-            return mapped.scheme
+           let scheme = launchSchemes(forBundleID: bundleID).first {
+            return scheme
         }
         return suggestedScheme(for: fallbackName)
+    }
+
+    static func captureSelectionIdentities(_ selection: FamilyActivitySelection, source: String) {
+        var captured = 0
+        for application in selection.applications {
+            guard let token = application.token else { continue }
+            let displayName = application.localizedDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let bundleID = application.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !(displayName ?? "").isEmpty || !(bundleID ?? "").isEmpty else { continue }
+            AppIdentityStore.record(token: token, bundleID: bundleID, displayName: displayName)
+            captured += 1
+        }
+
+        if !selection.applications.isEmpty || !selection.applicationTokens.isEmpty {
+            NSLog(
+                "🧾 Unscroll selection identity [%@] applications=%d tokens=%d captured=%d records=%d",
+                source,
+                selection.applications.count,
+                selection.applicationTokens.count,
+                captured,
+                AppIdentityStore.recordCount()
+            )
+        }
     }
 
     /// Returns a human-readable display name for a selection.

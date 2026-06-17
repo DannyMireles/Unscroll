@@ -77,7 +77,9 @@ final class ShieldActionExtension: ShieldActionDelegate {
         return matchedID
     }
 
-    /// `completionHandler(.close)` must run only after `UNUserNotificationCenter.add` completes.
+    /// The notification must be scheduled from the action extension, after the user taps
+    /// the shield button. Scheduling from the configuration extension fires too early and
+    /// is not reliable across the Screen Time sandbox.
     private func scheduleOpenUnscrollNotification(
         lockID: UUID?,
         requestID: String,
@@ -87,7 +89,7 @@ final class ShieldActionExtension: ShieldActionDelegate {
 
         let content = UNMutableNotificationContent()
         content.title = "Complete your activity"
-        content.body = "Tap to open Unscroll and unlock the app."
+        content.body = "Tap to open Unscroll."
         content.sound = .default
 
         let deeplink: String
@@ -102,11 +104,14 @@ final class ShieldActionExtension: ShieldActionDelegate {
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
 
         let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { _ in
-            center.add(request) { _ in
-                DispatchQueue.main.async {
-                    afterScheduled()
-                }
+        center.add(request) { error in
+            if let error {
+                NSLog("🔔 Unscroll shield action notification failed %@", String(describing: error))
+            } else {
+                NSLog("🔔 Unscroll shield action notification scheduled deeplink=%@", deeplink)
+            }
+            DispatchQueue.main.async {
+                afterScheduled()
             }
         }
     }

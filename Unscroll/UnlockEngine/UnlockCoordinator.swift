@@ -11,14 +11,26 @@ final class UnlockCoordinator: ObservableObject {
         guard url.scheme == AppConstants.urlScheme else { return }
         guard url.host == "unlock" else { return }
 
+        let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        let queryItems = components?.queryItems ?? []
         let idString = url.pathComponents.dropFirst().first
-            ?? URLComponents(url: url, resolvingAgainstBaseURL: false)?
-            .queryItems?
+            ?? queryItems
             .first(where: { $0.name == "id" })?
             .value
+        let appName = queryItems.first(where: { $0.name == "appName" })?.value
+        let bundleID = queryItems.first(where: { $0.name == "bundleID" })?.value
 
         guard let idString else {
-            consumePendingUnlock()
+            if locks.isEmpty {
+                pendingDeepLinkURL = url
+                return
+            }
+
+            if let lock = fallbackLockForIdentitylessDeepLink(locks: locks) {
+                activeLock = lockWithCapturedIdentity(lock, appName: appName, bundleID: bundleID)
+            } else {
+                consumePendingUnlock()
+            }
             return
         }
 
@@ -27,7 +39,7 @@ final class UnlockCoordinator: ObservableObject {
         }
 
         if let lock = locks.first(where: { $0.id == id }) {
-            activeLock = lock
+            activeLock = lockWithCapturedIdentity(lock, appName: appName, bundleID: bundleID)
         } else if locks.isEmpty {
             pendingDeepLinkURL = url
         } else {
@@ -39,6 +51,73 @@ final class UnlockCoordinator: ObservableObject {
         guard let url = pendingDeepLinkURL else { return }
         pendingDeepLinkURL = nil
         handle(url: url, locks: locks)
+    }
+
+    private func lockWithCapturedIdentity(_ lock: AppLock, appName: String?, bundleID: String?) -> AppLock {
+        guard lock.canDeepLink, let token = lock.selection.applicationTokens.first else {
+            return lock
+        }
+
+        let cleanName = nonEmpty(appName)
+        let cleanBundle = nonEmpty(bundleID)
+        guard cleanName != nil || cleanBundle != nil else {
+            return lock
+        }
+
+        AppIdentityStore.record(token: token, bundleID: cleanBundle, displayName: cleanName)
+
+        var updated = lock
+        if let cleanName, !LockStore.isGenericDisplayName(cleanName) {
+            updated.appDisplayName = cleanName
+        }
+
+        let bundleScheme = cleanBundle.flatMap { LockStore.launchSchemes(forBundleID: $0).first }
+        let nameScheme = cleanName.flatMap { LockStore.launchSchemes(forName: $0).first }
+        if let resolvedScheme = bundleScheme ?? nameScheme ?? LockStore.normalizeScheme(updated.launchURLScheme) {
+            updated.launchURLScheme = resolvedScheme
+        }
+
+        persistCapturedIdentityLock(updated)
+        NSLog(
+            "🔗 Unscroll: captured notification identity id=%@ bundle=%@ name=%@ scheme=%@",
+            updated.id.uuidString,
+            cleanBundle ?? "nil",
+            cleanName ?? "nil",
+            updated.launchURLScheme ?? "nil"
+        )
+        return updated
+    }
+
+    private func persistCapturedIdentityLock(_ updated: AppLock) {
+        var locks = SharedLockFileStore.load()
+        guard let index = locks.firstIndex(where: { $0.id == updated.id }) else { return }
+        guard locks[index] != updated else { return }
+        locks[index] = updated
+        try? SharedLockFileStore.save(locks)
+    }
+
+    private func fallbackLockForIdentitylessDeepLink(locks: [AppLock]) -> AppLock? {
+        let state = RuntimeStateStore.load()
+        if let id = state.pendingUnlockLockID,
+           let lock = locks.first(where: { $0.id == id }) {
+            return lock
+        }
+
+        let activeShielded = locks.filter {
+            !$0.isPaused &&
+            state.exceededLockIDs.contains($0.id) &&
+            !state.hasActiveUnlock(for: $0.id)
+        }
+        if activeShielded.count == 1 {
+            return activeShielded[0]
+        }
+
+        return locks.count == 1 ? locks[0] : nil
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed ?? "").isEmpty ? nil : trimmed
     }
 
     /// Presents an unlock activity ONLY when the user deliberately asked for one by

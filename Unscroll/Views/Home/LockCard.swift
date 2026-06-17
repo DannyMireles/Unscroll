@@ -6,6 +6,7 @@ struct LockCard: View {
     let onPause: () -> Void
     let onDelete: () -> Void
     let onOpenApp: () -> Void
+    let onCapturedAppName: (String) -> Void
 
     var body: some View {
         HStack(spacing: 14) {
@@ -42,7 +43,7 @@ struct LockCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Open \(lock.appDisplayName)")
+            .accessibilityLabel(lock.canDeepLink ? "Open \(lock.appDisplayName)" : "Open lock")
 
             Menu {
                 Button {
@@ -69,6 +70,22 @@ struct LockCard: View {
             .simultaneousGesture(TapGesture().onEnded { Haptics.softTap() })
         }
         .glassCard(padding: 16)
+        .overlay(alignment: .topLeading) {
+            if lock.selection.applicationTokens.count == 1,
+               lock.selection.categoryTokens.isEmpty,
+               lock.selection.webDomainTokens.isEmpty,
+               let token = lock.selection.applicationTokens.first {
+                ZStack(alignment: .topLeading) {
+                    ApplicationTokenNameCapture(token: token) { _, name in
+                        onCapturedAppName(name)
+                    }
+                    .id(token.hashValue)
+                    .frame(width: 260, height: 44)
+
+                    AppIdentityReportCapture(selection: lock.selection)
+                }
+            }
+        }
     }
 
     private var metaLine: String {

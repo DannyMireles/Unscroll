@@ -18,10 +18,13 @@ struct UnscrollApp: App {
                 .environmentObject(unlockCoordinator)
                 .task {
                     notificationRouter.install()
-                    await requestNotificationPermissionIfNeeded()
                     await lockStore.load()
                     unlockCoordinator.processPendingDeepLink(locks: lockStore.locks)
+                    await lockStore.load()
                     await permissionManager.refreshStatus(reason: "app launch")
+                    if permissionManager.canEnterApp && !lockStore.locks.isEmpty {
+                        await requestNotificationPermissionIfNeeded()
+                    }
                     await RestrictionEngine.shared.configureMonitoring(for: lockStore.locks)
                     unlockCoordinator.consumePendingUnlock()
                 }
@@ -31,12 +34,17 @@ struct UnscrollApp: App {
                         await permissionManager.refreshStatus(reason: "scene active")
                         await RestrictionEngine.shared.reapplyCurrentShields()
                         await lockStore.load()
+                        unlockCoordinator.processPendingDeepLink(locks: lockStore.locks)
                         unlockCoordinator.refreshStats()
                         unlockCoordinator.consumePendingUnlock()
                     }
                 }
                 .onOpenURL { url in
                     unlockCoordinator.handle(url: url, locks: lockStore.locks)
+                    Task { @MainActor in
+                        await lockStore.load()
+                        unlockCoordinator.processPendingDeepLink(locks: lockStore.locks)
+                    }
                 }
         }
     }

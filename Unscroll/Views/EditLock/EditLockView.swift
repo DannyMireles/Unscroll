@@ -7,16 +7,14 @@ struct EditLockView: View {
     @EnvironmentObject private var lockStore: LockStore
 
     @State private var draft: AppLock
-    @State private var lockName: String
     @State private var isPickerPresented = false
+    @State private var pickerCapturedAppName = ""
     @State private var hours: Int
     @State private var minutes: Int
     @State private var isSaving = false
 
     init(lock: AppLock) {
         _draft = State(initialValue: lock)
-        // Show an editable field with a placeholder rather than the "App" placeholder name.
-        _lockName = State(initialValue: LockStore.isGenericDisplayName(lock.appDisplayName) ? "" : lock.appDisplayName)
         _hours = State(initialValue: lock.dailyLimitMinutes / 60)
         _minutes = State(initialValue: lock.dailyLimitMinutes % 60)
     }
@@ -45,15 +43,34 @@ struct EditLockView: View {
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
-                    .padding(.bottom, 24)
+                    .padding(.bottom, 116)
                 }
                 .scrollDismissesKeyboard(.interactively)
             }
             .safeAreaInset(edge: .bottom) {
-                PrimaryButton(title: "Save Changes", isDisabled: !canSave) { save() }
+                VStack(spacing: 0) {
+                    PrimaryButton(title: "Save Changes", isDisabled: !canSave) { save() }
+                }
                     .padding(.horizontal, 20)
+                    .padding(.top, 12)
                     .padding(.bottom, 12)
-                    .background(.clear)
+                    .background {
+                        ZStack(alignment: .top) {
+                            Rectangle()
+                                .fill(.ultraThinMaterial)
+                            LinearGradient(
+                                colors: [Color.clear, Color.black.opacity(0.04)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                        .ignoresSafeArea(edges: .bottom)
+                    }
+                    .overlay(alignment: .top) {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.36))
+                            .frame(height: 1)
+                    }
             }
             .navigationTitle("Edit Lock")
             .navigationBarTitleDisplayMode(.inline)
@@ -64,23 +81,22 @@ struct EditLockView: View {
                 }
             }
             .familyActivityPicker(isPresented: $isPickerPresented, selection: $draft.selection)
-            // Picking a new app pre-fills the name when iOS exposes one; the launch link
-            // is derived from the confirmed name (that's what makes the lock open the app).
-            .onChange(of: draft.selection) { newSelection in
-                let detected = LockStore.displayName(for: newSelection)
-                lockName = LockStore.isGenericDisplayName(detected) ? "" : detected
-                draft.launchURLScheme = LockStore.isGenericDisplayName(detected)
-                    ? nil
-                    : LockStore.suggestedScheme(for: newSelection, fallbackName: detected)
-                Haptics.success()
-            }
-            .onChange(of: lockName) { newName in
-                let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-                draft.appDisplayName = trimmed.isEmpty ? draft.appDisplayName : trimmed
-                guard !trimmed.isEmpty, !LockStore.isGenericDisplayName(trimmed) else { return }
-                if let scheme = LockStore.launchSchemes(forName: trimmed).first {
-                    draft.launchURLScheme = scheme
+            .background {
+                FamilyActivityPickerNameCapture(isActive: isPickerPresented) { name in
+                    pickerCapturedAppName = name
+                    applyPickerCapturedAppNameIfPossible(name)
                 }
+                .frame(width: 0, height: 0)
+            }
+            // Store whatever Screen Time exposes and let extension-captured identity
+            // refine the display name / launch hint later.
+            .onChange(of: draft.selection) { newSelection in
+                LockStore.captureSelectionIdentities(newSelection, source: "edit.selection")
+                let detected = LockStore.displayName(for: newSelection)
+                draft.appDisplayName = detected
+                draft.launchURLScheme = LockStore.suggestedScheme(for: newSelection, fallbackName: detected)
+                applyPickerCapturedAppNameIfPossible(pickerCapturedAppName)
+                Haptics.success()
             }
         }
         .interactiveDismissDisabled(isSaving)
@@ -114,13 +130,26 @@ struct EditLockView: View {
                 .glassCard()
             }
             .buttonStyle(.plain)
+            .overlay(alignment: .topLeading) {
+                if isSingleApplicationSelection, let token = draft.selection.applicationTokens.first {
+                    ZStack(alignment: .topLeading) {
+                        ApplicationTokenNameCapture(token: token) { token, name in
+                            applyCapturedAppName(name, for: token)
+                        }
+                        .id(token.hashValue)
+                        .frame(width: 260, height: 44)
+
+                        AppIdentityReportCapture(selection: draft.selection)
+                    }
+                }
+            }
 
             if draft.selectedItemCount > 1 {
                 SelectedAppsSummaryView(selection: draft.selection)
             }
 
             if isSingleApplicationSelection {
-                AppNamePicker(name: $lockName)
+                SingleApplicationNote()
             }
         }
     }
@@ -195,7 +224,35 @@ struct EditLockView: View {
             return detected
         }
 
-        return lockName
+        return draft.appDisplayName
+    }
+
+    private func applyCapturedAppName(_ name: String, for token: ApplicationToken) {
+        guard isSingleApplicationSelection,
+              draft.selection.applicationTokens.contains(token)
+        else { return }
+
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !LockStore.isGenericDisplayName(trimmed) else { return }
+
+        AppIdentityStore.record(token: token, bundleID: nil, displayName: trimmed)
+        draft.appDisplayName = trimmed
+        if let scheme = LockStore.launchSchemes(forName: trimmed).first {
+            draft.launchURLScheme = scheme
+        }
+        NSLog("🔗 Unscroll: captured edited app label '%@'", trimmed)
+    }
+
+    private func applyPickerCapturedAppNameIfPossible(_ name: String) {
+        guard isSingleApplicationSelection else { return }
+
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !LockStore.isGenericDisplayName(trimmed),
+              let token = draft.selection.applicationTokens.first
+        else { return }
+
+        applyCapturedAppName(trimmed, for: token)
+        NSLog("🔗 Unscroll: captured edited picker app label '%@'", trimmed)
     }
 
     private func save() {
@@ -204,30 +261,17 @@ struct EditLockView: View {
         Haptics.celebrationDing()
 
         Task {
+            LockStore.captureSelectionIdentities(draft.selection, source: "edit.save")
             draft.dailyLimitMinutes = totalMinutes
 
-            let trimmedName = resolvedLockName()
-            draft.appDisplayName = trimmedName.isEmpty
-                ? LockStore.displayName(for: draft.selection)
-                : trimmedName
-
-            // Keep the launch scheme in sync with the confirmed name (so "X" → twitter).
-            if let nameScheme = LockStore.launchSchemes(forName: draft.appDisplayName).first {
-                draft.launchURLScheme = nameScheme
+            let detectedName = LockStore.displayName(for: draft.selection)
+            if !LockStore.isGenericDisplayName(detectedName) || LockStore.isGenericDisplayName(draft.appDisplayName) {
+                draft.appDisplayName = detectedName
             }
+            draft.launchURLScheme = LockStore.suggestedScheme(for: draft.selection, fallbackName: draft.appDisplayName)
 
             await lockStore.update(draft)
             dismiss()
         }
-    }
-
-    private func resolvedLockName() -> String {
-        let trimmedName = lockName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !LockStore.isGenericDisplayName(trimmedName) {
-            return trimmedName
-        }
-
-        // Re-resolve from the selection (Apple metadata + bundle-ID mapping).
-        return LockStore.displayName(for: draft.selection)
     }
 }
