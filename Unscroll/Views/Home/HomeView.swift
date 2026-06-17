@@ -1,60 +1,93 @@
 import SwiftUI
+import UIKit
+import UserNotifications
 
 struct HomeView: View {
     @EnvironmentObject private var lockStore: LockStore
     @EnvironmentObject private var permissionManager: ScreenTimePermissionManager
     @EnvironmentObject private var unlockCoordinator: UnlockCoordinator
 
-    @AppStorage("themePreference") private var themePreference = ThemePreference.system.rawValue
+    @AppStorage("themePreference") private var themePreference = ThemePreference.light.rawValue
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var isAddingLock = false
     @State private var editingLock: AppLock?
     @State private var showScreenTimeRequiredAlert = false
     @State private var unavailableLock: AppLock?
-    @State private var readyLock: AppLock?
+    @State private var linkSetupLock: AppLock?
+    @State private var didAutoScrollToFirstLockGuide = false
+    @State private var showFirstLockSpotlight = false
+    @State private var isRequestingNotificationPermission = false
+    @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
+    @AppStorage("didActOnFirstLockSpotlight") private var didActOnFirstLockSpotlight = false
+
+    private let firstLockGuideID = "firstLockGuide"
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 26) {
-                hero
-                TodayProgressCard(stats: unlockCoordinator.stats)
-                locksSection
+        ScrollViewReader { scrollProxy in
+            ScrollView {
+                VStack(spacing: 26) {
+                    hero
+                        .blur(radius: showFirstLockSpotlight ? 3 : 0)
+                        .opacity(showFirstLockSpotlight ? 0.62 : 1)
+                    TodayProgressCard(stats: unlockCoordinator.stats)
+                        .blur(radius: showFirstLockSpotlight ? 3 : 0)
+                        .opacity(showFirstLockSpotlight ? 0.62 : 1)
+                    locksSection
 
-                if let message = lockStore.lastErrorMessage {
-                    Text(message)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if let message = lockStore.lastErrorMessage {
+                        Text(message)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 24)
+                .padding(.bottom, 40)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 24)
-            .padding(.bottom, 40)
+            .onAppear {
+                scrollToFirstLockGuideIfNeeded(using: scrollProxy)
+            }
+            .onChange(of: lockStore.locks.isEmpty) { _ in
+                scrollToFirstLockGuideIfNeeded(using: scrollProxy)
+            }
         }
         .overlay(alignment: .topTrailing) {
-            themeToggle
-                .padding(.trailing, 18)
-                .padding(.top, 6)
+            HStack(spacing: 8) {
+                if shouldShowNotificationAction {
+                    notificationActionButton
+                }
+                themeToggle
+            }
+            .padding(.trailing, 18)
+            .padding(.top, 6)
+        }
+        .overlay {
+            if let linkSetupLock {
+                AppLinkSetupView(
+                    lock: linkSetupLock,
+                    onLinked: openLinkedApp,
+                    onCancel: { self.linkSetupLock = nil }
+                )
+                .id(linkSetupLock.id)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .zIndex(20)
+            }
+        }
+        .task {
+            await refreshNotificationStatus()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            Task { await refreshNotificationStatus() }
         }
         .sheet(isPresented: $isAddingLock) {
-            AddLockView(onCreated: { lock in
-                readyLock = lock
+            AddLockView(onCreated: { _ in
+                requestNotificationPermissionAfterSheetDismisses()
             })
         }
         .sheet(item: $editingLock) { lock in
             EditLockView(lock: lock)
-        }
-        .overlay {
-            if let lock = readyLock {
-                LockReadyPopup(
-                    lock: lock,
-                    message: readyMessage(for: lock),
-                    buttonTitle: "Got it",
-                    onDismiss: { readyLock = nil }
-                )
-                .zIndex(20)
-            }
         }
         .alert("Screen Time Access Needed", isPresented: $showScreenTimeRequiredAlert) {
             Button("OK", role: .cancel) {}
@@ -62,19 +95,12 @@ struct HomeView: View {
             Text("Screen Time access is required before creating locks.")
         }
         .alert(
-            unavailableLock.map { "Couldn't open \(displayNameForAlert($0))" } ?? "Couldn't open the app",
+            unavailableLock.map(unavailableTitle(for:)) ?? "Apps unlocked",
             isPresented: Binding(
                 get: { unavailableLock != nil },
                 set: { if !$0 { unavailableLock = nil } }
             )
         ) {
-            if let lock = unavailableLock, lock.canDeepLink {
-                Button("Edit Lock") {
-                    let target = unavailableLock
-                    unavailableLock = nil
-                    editingLock = target
-                }
-            }
             Button("OK", role: .cancel) { unavailableLock = nil }
         } message: {
             Text(unavailableLock.map(unavailableMessage(for:)) ?? "")
@@ -103,6 +129,36 @@ struct HomeView: View {
         .accessibilityLabel(colorScheme == .dark ? "Switch to light mode" : "Switch to dark mode")
     }
 
+    private var shouldShowNotificationAction: Bool {
+        switch notificationAuthorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return false
+        case .denied, .notDetermined:
+            return true
+        @unknown default:
+            return true
+        }
+    }
+
+    private var notificationActionButton: some View {
+        Button {
+            Haptics.softTap()
+            Task { await handleNotificationAction() }
+        } label: {
+            Image(systemName: notificationAuthorizationStatus == .denied ? "bell.slash.fill" : "bell.badge.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(notificationAuthorizationStatus == .denied ? Color.red : AppTheme.accentDeep)
+                .frame(width: 40, height: 40)
+                .background(.ultraThinMaterial, in: Circle())
+                .overlay {
+                    Circle().stroke(Color.white.opacity(0.4), lineWidth: 1)
+                }
+                .shadow(color: AppTheme.softShadow, radius: 6, x: 0, y: 3)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(notificationAuthorizationStatus == .denied ? "Open notification settings" : "Enable notifications")
+    }
+
     private var hero: some View {
         VStack(spacing: 14) {
             BrandLogoView(size: 78)
@@ -123,7 +179,7 @@ struct HomeView: View {
     private var locksSection: some View {
         VStack(spacing: 14) {
             HStack {
-                SectionTitle(title: "Your Locks")
+                SectionTitle(title: "App Locks")
                 Spacer()
                 Button(action: startAddLock) {
                     HStack(spacing: 5) {
@@ -140,7 +196,8 @@ struct HomeView: View {
             }
 
             if lockStore.locks.isEmpty {
-                EmptyLocksView(action: startAddLock)
+                EmptyLocksView(action: startAddLock, isSpotlight: showFirstLockSpotlight)
+                    .id(firstLockGuideID)
             } else if lockStore.locks.count > 3 {
                 // Keep a long list from pushing the page down — scroll within the section.
                 ScrollView(.vertical, showsIndicators: true) {
@@ -174,7 +231,8 @@ struct HomeView: View {
                     onEdit: { editingLock = lock },
                     onPause: { Task { await lockStore.togglePause(lock) } },
                     onDelete: { Task { await lockStore.delete(lock) } },
-                    onOpenApp: { openOrUnlock(lock) }
+                    onOpenApp: { openOrUnlock(lock) },
+                    onCapturedAppName: { name in applyCapturedAppName(name, for: lock) }
                 )
             }
         }
@@ -183,6 +241,10 @@ struct HomeView: View {
     private func startAddLock() {
         Haptics.softTap()
         if permissionManager.isAuthorized {
+            didActOnFirstLockSpotlight = true
+            withAnimation(.easeOut(duration: 0.22)) {
+                showFirstLockSpotlight = false
+            }
             isAddingLock = true
         } else {
             showScreenTimeRequiredAlert = true
@@ -201,40 +263,143 @@ struct HomeView: View {
         if isLocked {
             unlockCoordinator.activeLock = lock
         } else {
+            let currentLock = lockStore.locks.first(where: { $0.id == lock.id }) ?? lock
+            guard currentLock.canDeepLink else {
+                handleOpenUnavailable(for: currentLock)
+                return
+            }
+            AppLaunchHelper.openTargetApp(for: currentLock) {
+                handleOpenUnavailable(for: currentLock)
+            }
+        }
+    }
+
+    /// Tapping "Open" can't launch anything when a lock doesn't resolve to one app. Surface an
+    /// honest message; for a category / multi-app lock there's simply no single app to open.
+    private func handleOpenUnavailable(for lock: AppLock) {
+        if lock.canDeepLink {
+            linkSetupLock = lock
+        } else {
+            unavailableLock = lock
+        }
+    }
+
+    private func openLinkedApp(_ lock: AppLock) {
+        linkSetupLock = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             AppLaunchHelper.openTargetApp(for: lock) {
                 handleOpenUnavailable(for: lock)
             }
         }
     }
 
-    /// Tapping "Open" can't launch anything when the lock has no app to link to. Surface an
-    /// honest message — for a single-app lock the user can name it in Edit so it links next
-    /// time; for a category / multi-app lock there's simply no single app to open.
-    private func handleOpenUnavailable(for lock: AppLock) {
-        unavailableLock = lock
+    private func applyCapturedAppName(_ name: String, for lock: AppLock) {
+        guard lock.canDeepLink,
+              let token = lock.selection.applicationTokens.first
+        else { return }
+
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !LockStore.isGenericDisplayName(trimmed) else { return }
+
+        AppIdentityStore.record(token: token, bundleID: nil, displayName: trimmed)
+        let resolvedScheme = LockStore.launchSchemes(forName: trimmed).first
+            ?? LockStore.normalizeScheme(lock.launchURLScheme)
+
+        Task {
+            var updated = lockStore.locks.first(where: { $0.id == lock.id }) ?? lock
+            guard updated.appDisplayName != trimmed || updated.launchURLScheme != resolvedScheme else { return }
+            updated.appDisplayName = trimmed
+            updated.launchURLScheme = resolvedScheme
+            NSLog("🔗 Unscroll: self-healed app label '%@' scheme=%@", trimmed, resolvedScheme ?? "")
+            await lockStore.update(updated)
+            await lockStore.resolveAndApplyAppStoreIdentity(lockID: updated.id, token: token, name: trimmed)
+        }
+    }
+
+    private func scrollToFirstLockGuideIfNeeded(using proxy: ScrollViewProxy) {
+        guard lockStore.locks.isEmpty, !didAutoScrollToFirstLockGuide, !didActOnFirstLockSpotlight else { return }
+        didAutoScrollToFirstLockGuide = true
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard lockStore.locks.isEmpty else { return }
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.88)) {
+                proxy.scrollTo(firstLockGuideID, anchor: .top)
+            }
+            withAnimation(.easeInOut(duration: 0.22)) {
+                showFirstLockSpotlight = true
+            }
+        }
+    }
+
+    private func requestNotificationPermissionAfterSheetDismisses() {
+        Task {
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            await requestNotificationPermissionAfterReadyIfNeeded()
+        }
+    }
+
+    @MainActor
+    private func requestNotificationPermissionAfterReadyIfNeeded() async {
+        guard !isRequestingNotificationPermission else { return }
+        isRequestingNotificationPermission = true
+        defer { isRequestingNotificationPermission = false }
+
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        notificationAuthorizationStatus = settings.authorizationStatus
+        guard settings.authorizationStatus == .notDetermined else { return }
+
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+        await refreshNotificationStatus()
+    }
+
+    @MainActor
+    private func refreshNotificationStatus() async {
+        notificationAuthorizationStatus = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
+    @MainActor
+    private func handleNotificationAction() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        notificationAuthorizationStatus = settings.authorizationStatus
+
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            guard !isRequestingNotificationPermission else { return }
+            isRequestingNotificationPermission = true
+            _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+            isRequestingNotificationPermission = false
+            await refreshNotificationStatus()
+        case .denied:
+            openAppSettings()
+        default:
+            await refreshNotificationStatus()
+        }
+    }
+
+    private func openAppSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     private func displayNameForAlert(_ lock: AppLock) -> String {
         LockStore.isGenericDisplayName(lock.appDisplayName) ? "the app" : lock.appDisplayName
     }
 
-    private func unavailableMessage(for lock: AppLock) -> String {
-        if lock.canDeepLink {
-            return "Open it from your Home Screen. To open it in one tap from here, tap Edit Lock and choose which app this is."
-        }
-        return "This lock covers more than one app, so there's no single app to jump to — open what you need from your Home Screen."
+    private func unavailableTitle(for lock: AppLock) -> String {
+        lock.canDeepLink ? "Couldn't open \(displayNameForAlert(lock))" : "Apps unlocked"
     }
 
-    /// The post-creation confirmation. Honest about whether this lock can deep-link.
-    private func readyMessage(for lock: AppLock) -> String {
-        if lock.canDeepLink, !LockStore.isGenericDisplayName(lock.appDisplayName) {
-            return "Locked and ready. Tap it any time to open \(lock.appDisplayName) — and once you pass your daily limit, you'll earn your time back right here."
-        }
+    private func unavailableMessage(for lock: AppLock) -> String {
         if lock.canDeepLink {
-            return "Locked and ready. Add the app's name in Edit to open it in one tap — and once you pass your daily limit, you'll earn your time back right here."
+            return "This link needs one quick setup step."
         }
-        return "Locked and ready. Once you pass your daily limit, complete a quick activity right here to earn your time back."
+        return "Your apps are unlocked. Open any of them from your Home Screen."
     }
+
 }
 
 private struct TodayProgressCard: View {

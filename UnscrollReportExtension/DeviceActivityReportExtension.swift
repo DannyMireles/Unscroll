@@ -11,10 +11,8 @@ struct UnscrollReportExtension: DeviceActivityReportExtension {
     }
 }
 
-/// Computed usage for the report's view. Note: a `DeviceActivityReport` extension runs in
-/// a locked-down sandbox that may *read* Screen Time data but is denied writing to the App
-/// Group, so this extension can only render a view — it cannot persist app identities.
-/// Identity capture happens in the Shield extension instead.
+/// Computed usage for the report's view. The report extension also records any app
+/// identity iOS exposes while it walks the Screen Time data.
 struct UnscrollUsageSummary {
     var totalSeconds: Double = 0
     var hasData: Bool = false
@@ -30,6 +28,18 @@ private struct UnscrollUsageReport: DeviceActivityReportScene {
             for await segment in deviceData.activitySegments {
                 for await category in segment.categories {
                     for await applicationActivity in category.applications {
+                        if let token = applicationActivity.application.token {
+                            AppIdentityStore.record(
+                                token: token,
+                                bundleID: applicationActivity.application.bundleIdentifier,
+                                displayName: applicationActivity.application.localizedDisplayName
+                            )
+                            NSLog(
+                                "🧾 Unscroll report identity token=present bundle=%@ name=%@",
+                                applicationActivity.application.bundleIdentifier ?? "nil",
+                                applicationActivity.application.localizedDisplayName ?? "nil"
+                            )
+                        }
                         summary.hasData = true
                         summary.totalSeconds += applicationActivity.totalActivityDuration
                     }

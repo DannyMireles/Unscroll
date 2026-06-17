@@ -25,7 +25,7 @@ enum AppTheme {
     // MARK: - Brand voice
 
     static let tagline = "Train your mind. Earn your scroll."
-    static let subtagline = "Keep the apps you love — just grow a little first."
+    static let subtagline = "Keep the apps. Add one clean pause."
 }
 
 /// App-wide appearance preference, persisted via `@AppStorage("themePreference")`.
@@ -111,14 +111,38 @@ struct BrandLogoView: View {
     }
 }
 
+struct BrandAppLockMark: View {
+    let lock: AppLock
+    var size: CGFloat = 104
+
+    var body: some View {
+        HStack(spacing: -size * 0.10) {
+            BrandLogoView(size: size)
+
+            AppTokenIconView(lock: lock)
+                .scaleEffect(size >= 104 ? 1.18 : 1.02)
+                .shadow(color: Color.black.opacity(0.16), radius: 12, x: 0, y: 7)
+        }
+        .frame(width: size * 1.45, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Confetti
+
+enum ConfettiStart {
+    case top
+    case point(UnitPoint)
+}
 
 /// A lightweight, self-contained confetti burst. Drop it into a ZStack; it animates
 /// once on appear. Use a changing `.id(...)` to replay it.
 struct ConfettiView: View {
     var pieceCount: Int = 64
+    var start: ConfettiStart = .top
 
-    @State private var isAnimating = false
+    @State private var hasBurst = false
+    @State private var hasFallen = false
 
     private let colors: [Color] = [
         AppTheme.accent,
@@ -135,29 +159,98 @@ struct ConfettiView: View {
                     piece(index: index, size: geo.size)
                 }
             }
-            .onAppear { isAnimating = true }
+            .onAppear { startAnimation() }
         }
         .allowsHitTesting(false)
     }
 
     private func piece(index: Int, size: CGSize) -> some View {
         var rng = SeededGenerator(seed: UInt64(index + 1))
-        let startX = Double.random(in: 0...max(size.width, 1), using: &rng)
-        let endX = startX + Double.random(in: -70...70, using: &rng)
+        let trajectory = trajectory(index: index, size: size, rng: &rng)
+        let current = currentPosition(for: trajectory)
         let width = Double.random(in: 6...11, using: &rng)
         let color = colors[index % colors.count]
         let rotation = Double.random(in: 0...360, using: &rng)
-        let duration = Double.random(in: 1.1...2.1, using: &rng)
-        let delay = Double.random(in: 0...0.3, using: &rng)
-        let fallTo = Double(size.height) + 60
+        let fallDuration = trajectory.isBurst ? Double.random(in: 2.35...3.35, using: &rng) : Double.random(in: 1.25...2.1, using: &rng)
+        let delay = Double.random(in: 0...(trajectory.isBurst ? 0.18 : 0.3), using: &rng)
+        let isMoving = trajectory.isBurst ? (hasBurst || hasFallen) : hasFallen
 
         return RoundedRectangle(cornerRadius: 2, style: .continuous)
             .fill(color)
             .frame(width: width, height: width * 0.62)
-            .rotationEffect(.degrees(isAnimating ? rotation + 220 : rotation))
-            .position(x: isAnimating ? endX : startX, y: isAnimating ? fallTo : -50)
-            .opacity(isAnimating ? 0 : 1)
-            .animation(.easeIn(duration: duration).delay(delay), value: isAnimating)
+            .rotationEffect(.degrees(isMoving ? rotation + 260 : rotation))
+            .position(x: current.x, y: current.y)
+            .opacity(hasFallen ? 0 : 1)
+            .animation(.easeOut(duration: trajectory.isBurst ? 0.46 : 0).delay(delay), value: hasBurst)
+            .animation(.easeIn(duration: fallDuration).delay(delay), value: hasFallen)
+    }
+
+    private func startAnimation() {
+        switch start {
+        case .top:
+            hasFallen = true
+        case .point:
+            hasBurst = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.46) {
+                hasFallen = true
+            }
+        }
+    }
+
+    private func currentPosition(for trajectory: ConfettiTrajectory) -> CGPoint {
+        guard trajectory.isBurst else {
+            return hasFallen ? trajectory.end : trajectory.start
+        }
+
+        if hasFallen { return trajectory.end }
+        if hasBurst { return trajectory.burst }
+        return trajectory.start
+    }
+
+    private func trajectory(index: Int, size: CGSize, rng: inout SeededGenerator) -> ConfettiTrajectory {
+        let width = max(size.width, 1)
+        let height = max(size.height, 1)
+
+        switch start {
+        case .top:
+            let sourceX = CGFloat(Double.random(in: 0...Double(width), using: &rng))
+            let start = CGPoint(x: sourceX, y: -50)
+            let end = CGPoint(
+                x: sourceX + CGFloat(Double.random(in: -70...70, using: &rng)),
+                y: height + 60
+            )
+            return ConfettiTrajectory(start: start, burst: start, end: end, isBurst: false)
+        case .point(let point):
+            let jitterX = CGFloat(Double.random(in: -16...16, using: &rng))
+            let jitterY = CGFloat(Double.random(in: -8...8, using: &rng))
+            let source = CGPoint(
+                x: clamped(width * point.x + jitterX, lower: 0, upper: width),
+                y: clamped(height * point.y + jitterY, lower: 0, upper: height)
+            )
+            let side: CGFloat = index.isMultiple(of: 2) ? -1 : 1
+            let sideSpread = CGFloat(Double.random(in: 46...150, using: &rng))
+            let upwardLaunch = CGFloat(Double.random(in: 76...165, using: &rng))
+            let burst = CGPoint(
+                x: clamped(source.x + side * sideSpread, lower: -16, upper: width + 16),
+                y: max(-30, source.y - upwardLaunch)
+            )
+            let end = CGPoint(
+                x: clamped(burst.x + CGFloat(Double.random(in: -54...54, using: &rng)), lower: -24, upper: width + 24),
+                y: height + 90
+            )
+            return ConfettiTrajectory(start: source, burst: burst, end: end, isBurst: true)
+        }
+    }
+
+    private func clamped(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
+        min(max(value, lower), upper)
+    }
+
+    private struct ConfettiTrajectory {
+        let start: CGPoint
+        let burst: CGPoint
+        let end: CGPoint
+        let isBurst: Bool
     }
 }
 
