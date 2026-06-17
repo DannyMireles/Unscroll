@@ -5,7 +5,6 @@ import SwiftUI
 struct AddLockView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var lockStore: LockStore
-    @AppStorage("didSeeAddLockGuide") private var didSeeAddLockGuide = false
 
     /// Called with the newly created lock just before the sheet dismisses, so the home
     /// screen can show the "lock ready" popup that captures the app's identity.
@@ -28,7 +27,6 @@ struct AddLockView: View {
     @State private var isSaving = false
     @State private var previewMethod: UnlockMethod?
     @State private var createdLock: AppLock?
-    @State private var showTutorialCuesThisSession = false
 
     private let lastStep = 3
     private let completionStep = 4
@@ -41,10 +39,6 @@ struct AddLockView: View {
 
     private var canSave: Bool {
         hasSelection && totalMinutes > 0
-    }
-
-    private var shouldShowTutorialCues: Bool {
-        showTutorialCuesThisSession && createdLock == nil
     }
 
     private var primaryDisabled: Bool {
@@ -71,7 +65,7 @@ struct AddLockView: View {
                     ZStack {
                         if step == completionStep {
                             completionStepView
-                                .transition(.opacity.combined(with: .offset(y: 12)))
+                                .transition(.opacity)
                         } else {
                             TabView(selection: $step) {
                                 appStep.tag(0)
@@ -84,7 +78,7 @@ struct AddLockView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .animation(AppTheme.Motion.reveal, value: step == completionStep)
+                    .animation(AppTheme.Motion.quick, value: step == completionStep)
 
                     bottomBar
                         .glassBottomBarChrome()
@@ -105,8 +99,10 @@ struct AddLockView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(isSaving)
+                    if step != completionStep {
+                        Button("Cancel") { dismiss() }
+                            .disabled(isSaving)
+                    }
                 }
             }
             .flowNavigationChrome()
@@ -138,7 +134,6 @@ struct AddLockView: View {
                     .presentationDetents([.fraction(0.82), .large])
                     .flowSheetPresentation()
             }
-            .onAppear(perform: prepareTutorialCues)
         }
         .interactiveDismissDisabled(isSaving)
     }
@@ -219,8 +214,7 @@ struct AddLockView: View {
     private var appStep: some View {
         StepScaffold(
             title: "Which app?",
-            subtitle: "Pick the app that pulls you in.",
-            cue: shouldShowTutorialCues ? (hasSelection ? "Good. Continue when ready." : "Tap Choose an app.") : nil
+            subtitle: "Pick the app that pulls you in."
         ) {
             VStack(spacing: 12) {
                 Button {
@@ -231,7 +225,7 @@ struct AddLockView: View {
                         hasSelection: hasSelection,
                         selectedItemCount: selectedItemCount,
                         fallbackName: displayNameForCurrentSelection,
-                        isHighlighted: shouldShowTutorialCues && !hasSelection
+                        isHighlighted: false
                     )
                 }
                 .buttonStyle(.plain)
@@ -263,8 +257,7 @@ struct AddLockView: View {
     private var limitStep: some View {
         StepScaffold(
             title: "How long each day?",
-            subtitle: "Set when Unscroll steps in.",
-            cue: shouldShowTutorialCues ? "Spin the wheels." : nil
+            subtitle: "Set when Unscroll steps in."
         ) {
             VStack(spacing: 8) {
                 HStack(spacing: 0) {
@@ -293,8 +286,7 @@ struct AddLockView: View {
     private var timingStep: some View {
         StepScaffold(
             title: "After an unlock?",
-            subtitle: "Choose what one challenge earns.",
-            cue: shouldShowTutorialCues ? "Pick the access window." : nil
+            subtitle: "Choose what one challenge earns."
         ) {
             VStack(spacing: 12) {
                 ForEach(UnlockRewardMode.allCases) { mode in
@@ -314,8 +306,7 @@ struct AddLockView: View {
     private var methodStep: some View {
         StepScaffold(
             title: "Pick your challenge",
-            subtitle: "Pick the pause before scrolling.",
-            cue: shouldShowTutorialCues ? "Tap one. Eye previews it." : nil
+            subtitle: "Pick the pause before scrolling."
         ) {
             UnlockMethodSelectionGrid(selection: $method) { previewMethod = $0 }
         }
@@ -406,17 +397,11 @@ struct AddLockView: View {
             createdLock = created
             isSaving = false
             Haptics.celebrationDing()
-            withAnimation(AppTheme.Motion.popup) {
+            withAnimation(AppTheme.Motion.quick) {
                 step = completionStep
             }
             triggerConfetti(from: .top)
         }
-    }
-
-    private func prepareTutorialCues() {
-        guard !didSeeAddLockGuide, !showTutorialCuesThisSession else { return }
-        showTutorialCuesThisSession = true
-        didSeeAddLockGuide = true
     }
 
     private func resolvedLockName() -> String {
@@ -505,7 +490,6 @@ struct AddLockView: View {
 private struct StepScaffold<Content: View>: View {
     let title: String
     let subtitle: String?
-    var cue: String? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -523,51 +507,14 @@ private struct StepScaffold<Content: View>: View {
                 }
                 .flowItem(0)
 
-                if let cue {
-                    TutorialCue(text: cue)
-                        .flowItem(1)
-                }
-
                 content
-                    .flowItem(cue == nil ? 1 : 2)
+                    .flowItem(1)
             }
             .padding(.horizontal, 20)
             .padding(.top, 24)
             .padding(.bottom, 24)
         }
         .scrollDismissesKeyboard(.interactively)
-    }
-}
-
-private struct TutorialCue: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let text: String
-    @State private var isPulsing = false
-
-    var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: "hand.tap.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(width: 24, height: 24)
-                .background(AppTheme.accent, in: Circle())
-
-            Text(text)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.accentDeep)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(AppTheme.accentSoft, in: RoundedRectangle(cornerRadius: AppTheme.cornerSmall, style: .continuous))
-        .scaleEffect(!reduceMotion && isPulsing ? 1.012 : 1.0)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                isPulsing = true
-            }
-        }
     }
 }
 
@@ -973,7 +920,9 @@ private struct SelectedChallengeCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(height: 34, alignment: .topLeading)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer(minLength: 6)
 
@@ -994,6 +943,7 @@ private struct SelectedChallengeCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 96)
         .glassCard(padding: 16)
         .transition(.opacity.combined(with: .offset(y: 8)))
         .animation(AppTheme.Motion.reveal, value: method)
@@ -1027,7 +977,9 @@ private struct ChallengeChoiceRow: View {
                             .font(AppTheme.Typography.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
+                            .frame(height: 30, alignment: .topLeading)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Spacer(minLength: 4)
 
@@ -1056,6 +1008,7 @@ private struct ChallengeChoiceRow: View {
             }
         }
         .padding(12)
+        .frame(height: 82)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
