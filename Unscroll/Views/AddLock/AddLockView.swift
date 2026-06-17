@@ -5,6 +5,7 @@ import SwiftUI
 struct AddLockView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var lockStore: LockStore
+    @AppStorage("didSeeAddLockGuide") private var didSeeAddLockGuide = false
 
     /// Called with the newly created lock just before the sheet dismisses, so the home
     /// screen can show the "lock ready" popup that captures the app's identity.
@@ -27,6 +28,7 @@ struct AddLockView: View {
     @State private var isSaving = false
     @State private var previewMethod: UnlockMethod?
     @State private var createdLock: AppLock?
+    @State private var showTutorialCuesThisSession = false
 
     private let lastStep = 3
     private let completionStep = 4
@@ -42,7 +44,7 @@ struct AddLockView: View {
     }
 
     private var shouldShowTutorialCues: Bool {
-        lockStore.locks.isEmpty && createdLock == nil
+        showTutorialCuesThisSession && createdLock == nil
     }
 
     private var primaryDisabled: Bool {
@@ -66,10 +68,10 @@ struct AddLockView: View {
                         .padding(.top, 8)
                         .flowAppear()
 
-                    Group {
+                    ZStack {
                         if step == completionStep {
                             completionStepView
-                                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                                .transition(.opacity.combined(with: .offset(y: 12)))
                         } else {
                             TabView(selection: $step) {
                                 appStep.tag(0)
@@ -78,9 +80,11 @@ struct AddLockView: View {
                                 methodStep.tag(3)
                             }
                             .tabViewStyle(.page(indexDisplayMode: .never))
+                            .transition(.opacity)
                         }
                     }
-                    .animation(AppTheme.Motion.page, value: step)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .animation(AppTheme.Motion.reveal, value: step == completionStep)
 
                     bottomBar
                         .glassBottomBarChrome()
@@ -134,6 +138,7 @@ struct AddLockView: View {
                     .presentationDetents([.fraction(0.82), .large])
                     .flowSheetPresentation()
             }
+            .onAppear(perform: prepareTutorialCues)
         }
         .interactiveDismissDisabled(isSaving)
     }
@@ -151,42 +156,55 @@ struct AddLockView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 12) {
-            Button {
-                guard step > 0 && step < completionStep else { return }
-                Haptics.softTap()
-                withAnimation(AppTheme.Motion.page) { step -= 1 }
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(AppTheme.Typography.headline)
-                    .foregroundStyle(AppTheme.accentDeep)
-                    .frame(width: 54, height: 54)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
-                            .stroke(Color.white.opacity(0.42), lineWidth: 1)
+        Group {
+            if step == completionStep {
+                PrimaryButton(
+                    title: primaryButtonTitle,
+                    isDisabled: primaryDisabled,
+                    action: primaryAction
+                )
+            } else {
+                HStack(spacing: 12) {
+                    Button {
+                        guard step > 0 else { return }
+                        Haptics.softTap()
+                        withAnimation(AppTheme.Motion.page) { step -= 1 }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(AppTheme.Typography.headline)
+                            .foregroundStyle(AppTheme.accentDeep)
+                            .frame(width: 54, height: 54)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
+                                    .stroke(Color.white.opacity(0.42), lineWidth: 1)
+                            }
                     }
-            }
-            .buttonStyle(.plain)
-            .disabled(isSaving || step <= 0 || step >= completionStep)
-            .opacity(step > 0 && step < completionStep ? 1 : 0)
-            .allowsHitTesting(step > 0 && step < completionStep)
+                    .buttonStyle(.plain)
+                    .disabled(isSaving || step <= 0)
+                    .opacity(step > 0 ? 1 : 0)
+                    .allowsHitTesting(step > 0)
 
-            PrimaryButton(
-                title: primaryButtonTitle,
-                isDisabled: primaryDisabled
-            ) {
-                if step == completionStep {
-                    if let createdLock {
-                        onCreated(createdLock)
-                    }
-                    dismiss()
-                } else if step == lastStep {
-                    save()
-                } else {
-                    withAnimation(AppTheme.Motion.page) { step += 1 }
+                    PrimaryButton(
+                        title: primaryButtonTitle,
+                        isDisabled: primaryDisabled,
+                        action: primaryAction
+                    )
                 }
             }
+        }
+    }
+
+    private func primaryAction() {
+        if step == completionStep {
+            if let createdLock {
+                onCreated(createdLock)
+            }
+            dismiss()
+        } else if step == lastStep {
+            save()
+        } else {
+            withAnimation(AppTheme.Motion.page) { step += 1 }
         }
     }
 
@@ -393,6 +411,12 @@ struct AddLockView: View {
             }
             triggerConfetti(from: .top)
         }
+    }
+
+    private func prepareTutorialCues() {
+        guard !didSeeAddLockGuide, !showTutorialCuesThisSession else { return }
+        showTutorialCuesThisSession = true
+        didSeeAddLockGuide = true
     }
 
     private func resolvedLockName() -> String {
@@ -886,52 +910,180 @@ struct UnlockMethodSelectionGrid: View {
     @Binding var selection: UnlockMethod
     var onPreview: ((UnlockMethod) -> Void)? = nil
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10)
-    ]
-
     var body: some View {
-        VStack(spacing: 10) {
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(UnlockMethod.challengeMethods) { option in
-                    UnlockMethodTile(
+        VStack(spacing: 14) {
+            SelectedChallengeCard(
+                method: selection,
+                onPreview: onPreview.map { handler in { handler(selection) } }
+            )
+
+            VStack(spacing: 10) {
+                ForEach(Array(UnlockMethod.challengeMethods.enumerated()), id: \.element.id) { index, option in
+                    ChallengeChoiceRow(
                         method: option,
                         isSelected: selection == option,
                         onPreview: onPreview.map { handler in { handler(option) } }
                     ) {
-                        if selection != option { Haptics.softTap() }
-                        selection = option
+                        select(option)
                     }
+                    .flowItem(index)
                 }
+
+                ChallengeChoiceRow(
+                    method: .random,
+                    isSelected: selection == .random,
+                    onPreview: onPreview.map { handler in { handler(.random) } }
+                ) {
+                    select(.random)
+                }
+                .flowItem(UnlockMethod.challengeMethods.count)
+            }
+        }
+    }
+
+    private func select(_ method: UnlockMethod) {
+        if selection != method {
+            Haptics.softTap()
+        }
+        selection = method
+    }
+}
+
+private struct SelectedChallengeCard: View {
+    let method: UnlockMethod
+    var onPreview: (() -> Void)?
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: method.setupIcon)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(AppTheme.accent, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Selected challenge")
+                    .font(AppTheme.Typography.captionSemibold)
+                    .foregroundStyle(.secondary)
+                Text(method.title)
+                    .font(AppTheme.Typography.headline)
+                    .foregroundStyle(.primary)
+                Text(method.description)
+                    .font(AppTheme.Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            Button {
-                selection = .random
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "shuffle")
-                        .font(.headline)
-                        .foregroundStyle(AppTheme.accent)
-                        .frame(width: 28)
+            Spacer(minLength: 6)
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("All Methods")
-                            .font(.headline.weight(.medium))
-                        Text("Randomly choose any unlock each time.")
-                            .font(.subheadline)
+            if let onPreview {
+                Button {
+                    Haptics.softTap()
+                    onPreview()
+                } label: {
+                    Image(systemName: "eye")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.accentDeep)
+                        .frame(width: 38, height: 38)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay { Circle().stroke(Color.white.opacity(0.36), lineWidth: 1) }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Preview \(method.title)")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(padding: 16)
+        .transition(.opacity.combined(with: .offset(y: 8)))
+        .animation(AppTheme.Motion.reveal, value: method)
+    }
+}
+
+private struct ChallengeChoiceRow: View {
+    let method: UnlockMethod
+    let isSelected: Bool
+    var onPreview: (() -> Void)?
+    let onSelect: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onSelect) {
+                HStack(spacing: 12) {
+                    Image(systemName: method.setupIcon)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(isSelected ? AppTheme.accentDeep : .secondary)
+                        .frame(width: 34, height: 34)
+                        .background(
+                            (isSelected ? AppTheme.accentSoft : Color.secondary.opacity(0.08)),
+                            in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(method.title)
+                            .font(AppTheme.Typography.headlineMedium)
+                            .foregroundStyle(.primary)
+                        Text(method.shortSetupDescription)
+                            .font(AppTheme.Typography.caption)
                             .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(2)
                     }
 
-                    Spacer()
+                    Spacer(minLength: 4)
 
-                    Image(systemName: selection == .random ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(selection == .random ? AppTheme.accent : Color.secondary.opacity(0.5))
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary.opacity(0.38))
                 }
-                .glassCard()
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            if let onPreview {
+                Button {
+                    Haptics.softTap()
+                    onPreview()
+                } label: {
+                    Image(systemName: "eye")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(AppTheme.accentDeep)
+                        .frame(width: 32, height: 32)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay { Circle().stroke(Color.white.opacity(0.34), lineWidth: 1) }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Preview \(method.title)")
+            }
+        }
+        .padding(12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
+                .stroke(isSelected ? AppTheme.accent.opacity(0.64) : Color.white.opacity(0.28), lineWidth: isSelected ? 1.5 : 1)
+        }
+        .shadow(color: isSelected ? AppTheme.accent.opacity(0.16) : .clear, radius: 14, x: 0, y: 8)
+        .animation(AppTheme.Motion.selection, value: isSelected)
+    }
+}
+
+private extension UnlockMethod {
+    var setupIcon: String {
+        switch self {
+        case .mentalMath: return "function"
+        case .patternMemory: return "square.grid.3x3"
+        case .breathing: return "wind"
+        case .reflect: return "character.book.closed"
+        case .random: return "shuffle"
+        }
+    }
+
+    var shortSetupDescription: String {
+        switch self {
+        case .mentalMath: return "A quick number prompt."
+        case .patternMemory: return "Watch and repeat taps."
+        case .breathing: return "Three guided breaths."
+        case .reflect: return "Learn one Spanish word."
+        case .random: return "Rotate through all methods."
         }
     }
 }

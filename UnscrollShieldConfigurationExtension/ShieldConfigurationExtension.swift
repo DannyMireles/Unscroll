@@ -42,22 +42,43 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     private func makeConfiguration(application: Application? = nil) -> ShieldConfiguration {
         return ShieldConfiguration(
             backgroundBlurStyle: .systemUltraThinMaterial,
-            backgroundColor: UIColor(red: 0.90, green: 0.95, blue: 0.93, alpha: 0.82),
-            icon: UIImage(systemName: "hand.raised.fill"),
+            backgroundColor: Self.backgroundColor,
+            icon: UIImage(systemName: "pause.circle.fill"),
             title: ShieldConfiguration.Label(
-                text: "Your limit is active",
-                color: UIColor.label
+                text: "Pause before you scroll",
+                color: Self.titleColor
             ),
             subtitle: ShieldConfiguration.Label(
-                text: "Tap Go To Activity. We'll send a notification that opens your Unscroll activity.",
-                color: UIColor.secondaryLabel
+                text: "Start a quick Unscroll activity to earn your next window.",
+                color: Self.subtitleColor
             ),
             primaryButtonLabel: ShieldConfiguration.Label(
-                text: "Go To Activity",
+                text: "Start Activity",
                 color: UIColor.white
             ),
-            primaryButtonBackgroundColor: UIColor(red: 0.33, green: 0.55, blue: 0.52, alpha: 1),
+            primaryButtonBackgroundColor: Self.accentColor,
             secondaryButtonLabel: nil
         )
+    }
+
+    private static let accentColor = UIColor(red: 0.18, green: 0.46, blue: 0.40, alpha: 1)
+
+    private static let backgroundColor = UIColor { traits in
+        if traits.userInterfaceStyle == .dark {
+            return UIColor(red: 0.06, green: 0.09, blue: 0.09, alpha: 0.88)
+        }
+        return UIColor(red: 0.92, green: 0.96, blue: 0.94, alpha: 0.86)
+    }
+
+    private static let titleColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor.white
+            : UIColor(red: 0.08, green: 0.22, blue: 0.20, alpha: 1)
+    }
+
+    private static let subtitleColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(white: 1.0, alpha: 0.72)
+            : UIColor(red: 0.24, green: 0.34, blue: 0.32, alpha: 0.78)
     }
 }
