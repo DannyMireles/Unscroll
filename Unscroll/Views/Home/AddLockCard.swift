@@ -17,9 +17,9 @@ struct AddLockCard: View {
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Create an app lock")
-                        .font(.headline.weight(.medium))
+                        .font(AppTheme.Typography.headlineMedium)
                     Text("Choose apps or categories, a daily limit, and a calm unlock.")
-                        .font(.subheadline)
+                        .font(AppTheme.Typography.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }

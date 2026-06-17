@@ -13,61 +13,59 @@ struct ReflectUnlockView: View {
     @State private var helperMessage = "Tap the English meaning."
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                Spacer(minLength: 12)
-
-                UnlockHeader(
-                    lock: lock,
-                    title: "Learn one Spanish word.",
-                    subtitle: "Pick the English meaning to continue."
-                )
-
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Spanish")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text(card.spanish)
-                            .font(.system(.largeTitle, design: .rounded).weight(.semibold))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(14)
-                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-
-                    VStack(spacing: 10) {
-                        ForEach(choices, id: \.self) { choice in
-                            ChoiceButton(
-                                title: choice,
-                                state: choiceState(for: choice)
-                            ) {
-                                select(choice)
-                            }
-                        }
-                    }
-
-                    Text(helperMessage)
-                        .font(.footnote)
+        UnlockScreenScaffold(
+            lock: lock,
+            title: "Learn one Spanish word.",
+            subtitle: "Pick the English meaning to continue."
+        ) {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Spanish")
+                        .font(AppTheme.Typography.captionSemibold)
                         .foregroundStyle(.secondary)
+                    Text(card.spanish)
+                        .font(AppTheme.Typography.display)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentTransition(.opacity)
+                }
+                .padding(14)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
+                        .stroke(Color.white.opacity(0.30), lineWidth: 1)
+                }
 
-                    HStack(spacing: 10) {
-                        SecondaryActionButton(title: "Reveal", icon: "lightbulb") {
-                            reveal()
+                VStack(spacing: 10) {
+                    ForEach(Array(choices.enumerated()), id: \.element) { index, choice in
+                        ChoiceButton(
+                            title: choice,
+                            state: choiceState(for: choice)
+                        ) {
+                            select(choice)
                         }
-                        SecondaryActionButton(title: "New Word", icon: "arrow.triangle.2.circlepath") {
-                            loadNextCard()
-                        }
+                        .flowItem(index)
                     }
                 }
-                .glassCard()
-                .padding(.horizontal, 20)
 
-                Spacer(minLength: 24)
+                Text(helperMessage)
+                    .font(AppTheme.Typography.footnoteMedium)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .contentTransition(.opacity)
+
+                HStack(spacing: 10) {
+                    SecondaryActionButton(title: "Reveal", icon: "lightbulb") {
+                        reveal()
+                    }
+                    SecondaryActionButton(title: "New Word", icon: "arrow.triangle.2.circlepath") {
+                        loadNextCard()
+                    }
+                }
             }
         }
-        .padding(.vertical, 24)
+        .animation(AppTheme.Motion.reveal, value: card.id)
+        .animation(AppTheme.Motion.quick, value: helperMessage)
         .onAppear {
             if choices.isEmpty {
                 choices = SpanishWordEngine.choices(for: card)
@@ -112,34 +110,40 @@ struct ReflectUnlockView: View {
             }
         } else {
             // Wrong: mark it, then reveal the right answer so they learn it before continuing.
-            wrongChoices.insert(choice)
-            revealedAnswer = true
-            helperMessage = "Not quite — “\(card.spanish)” means “\(card.english).” Tap it to continue."
+            withAnimation(AppTheme.Motion.reveal) {
+                wrongChoices.insert(choice)
+                revealedAnswer = true
+                helperMessage = "Not quite — “\(card.spanish)” means “\(card.english).” Tap it to continue."
+            }
             Haptics.retry()
         }
     }
 
     private func reveal() {
         guard !revealedAnswer, selectedChoice == nil else { return }
-        revealedAnswer = true
-        helperMessage = "“\(card.spanish)” means “\(card.english).” Tap it to continue."
+        withAnimation(AppTheme.Motion.reveal) {
+            revealedAnswer = true
+            helperMessage = "“\(card.spanish)” means “\(card.english).” Tap it to continue."
+        }
         Haptics.softTap()
     }
 
     private func loadNextCard() {
         let next = SpanishWordEngine.randomCard(avoiding: previousCardID)
-        previousCardID = next.id
-        card = next
-        choices = SpanishWordEngine.choices(for: next)
-        selectedChoice = nil
-        wrongChoices = []
-        revealedAnswer = false
-        helperMessage = "Tap the English meaning."
+        withAnimation(AppTheme.Motion.reveal) {
+            previousCardID = next.id
+            card = next
+            choices = SpanishWordEngine.choices(for: next)
+            selectedChoice = nil
+            wrongChoices = []
+            revealedAnswer = false
+            helperMessage = "Tap the English meaning."
+        }
     }
 }
 
 private struct ChoiceButton: View {
-    enum SelectionState {
+    enum SelectionState: Equatable {
         case idle
         case correct
         case wrong
@@ -153,7 +157,7 @@ private struct ChoiceButton: View {
         Button(action: action) {
             HStack {
                 Text(title)
-                    .font(.headline.weight(.medium))
+                    .font(AppTheme.Typography.headlineMedium)
                     .foregroundStyle(foreground)
                 Spacer()
                 if let icon {
@@ -164,13 +168,14 @@ private struct ChoiceButton: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
-            .background(background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(background, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
                     .stroke(borderColor, lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
+        .animation(AppTheme.Motion.selection, value: state)
     }
 
     private var icon: String? {
@@ -191,7 +196,7 @@ private struct ChoiceButton: View {
 
     private var background: Color {
         switch state {
-        case .idle: return Color.secondary.opacity(0.10)
+        case .idle: return Color.secondary.opacity(0.08)
         case .correct: return AppTheme.accent.opacity(0.16)
         case .wrong: return Color.red.opacity(0.10)
         }
@@ -217,11 +222,15 @@ private struct SecondaryActionButton: View {
                 Image(systemName: icon)
                 Text(title)
             }
-            .font(.subheadline.weight(.medium))
+            .font(AppTheme.Typography.subheadlineMedium)
             .foregroundStyle(AppTheme.accentDeep)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
-            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
+                    .stroke(Color.white.opacity(0.30), lineWidth: 1)
+            }
         }
         .buttonStyle(.plain)
     }

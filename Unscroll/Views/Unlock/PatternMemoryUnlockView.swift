@@ -11,37 +11,33 @@ struct PatternMemoryUnlockView: View {
     @State private var message = "Watch one clear pattern."
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 26) {
-                Spacer(minLength: 12)
+        UnlockScreenScaffold(
+            lock: lock,
+            title: "Copy one simple pattern.",
+            subtitle: "Watch it slowly, then tap those same tiles in order."
+        ) {
+            VStack(spacing: 18) {
+                Text(message)
+                    .font(AppTheme.Typography.headlineMedium)
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.opacity)
 
-                UnlockHeader(
-                    lock: lock,
-                    title: "Copy one simple pattern.",
-                    subtitle: "Watch it slowly, then tap those same tiles in order."
-                )
+                grid
 
-                VStack(spacing: 18) {
-                    Text(message)
-                        .font(.headline.weight(.medium))
-                        .foregroundStyle(.secondary)
-
-                    grid
-
-                    Button("Replay") {
-                        Task { await playSequence() }
-                    }
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(AppTheme.accentDeep)
-                    .disabled(isPlaying)
+                Button("Replay") {
+                    Task { await playSequence() }
                 }
-                .glassCard()
-                .padding(.horizontal, 20)
-
-                Spacer(minLength: 24)
+                .font(AppTheme.Typography.subheadlineMedium)
+                .foregroundStyle(AppTheme.accentDeep)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay { Capsule().stroke(Color.white.opacity(0.32), lineWidth: 1) }
+                .disabled(isPlaying)
+                .opacity(isPlaying ? 0.58 : 1)
             }
         }
-        .padding(.vertical, 24)
+        .animation(AppTheme.Motion.quick, value: message)
         .task {
             await playSequence()
         }
@@ -61,7 +57,7 @@ struct PatternMemoryUnlockView: View {
                                 .stroke(Color.white.opacity(0.35), lineWidth: 1)
                         }
                         .scaleEffect(highlightedTile == index ? 1.04 : 1.0)
-                        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: highlightedTile)
+                        .animation(AppTheme.Motion.selection, value: highlightedTile)
                 }
                 .buttonStyle(.plain)
                 .disabled(isPlaying)

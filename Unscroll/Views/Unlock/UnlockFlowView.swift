@@ -42,15 +42,59 @@ struct UnlockHeader: View {
                 .scaleEffect(1.1)
                 .padding(.bottom, 2)
             Text(title)
-                .font(.system(.title, design: .rounded).weight(.medium))
+                .font(AppTheme.Typography.title)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Text(subtitle)
-                .font(.body)
+                .font(AppTheme.Typography.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .lineSpacing(3)
         }
         .padding(.horizontal, 18)
+    }
+}
+
+struct UnlockScreenScaffold<Content: View>: View {
+    let lock: AppLock
+    let title: String
+    let subtitle: String
+    var screenSpacing: CGFloat = 26
+    var cardPadding: CGFloat = 18
+    private let content: Content
+
+    init(
+        lock: AppLock,
+        title: String,
+        subtitle: String,
+        screenSpacing: CGFloat = 26,
+        cardPadding: CGFloat = 18,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.lock = lock
+        self.title = title
+        self.subtitle = subtitle
+        self.screenSpacing = screenSpacing
+        self.cardPadding = cardPadding
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: screenSpacing) {
+                Spacer(minLength: 12)
+
+                UnlockHeader(lock: lock, title: title, subtitle: subtitle)
+                    .flowItem(0)
+
+                content
+                    .glassCard(padding: cardPadding)
+                    .padding(.horizontal, 20)
+                    .flowItem(1)
+
+                Spacer(minLength: 24)
+            }
+        }
+        .padding(.vertical, 24)
     }
 }

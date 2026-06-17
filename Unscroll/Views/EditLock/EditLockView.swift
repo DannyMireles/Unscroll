@@ -37,9 +37,13 @@ struct EditLockView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
                         appSection
+                            .flowItem(0)
                         limitSection
+                            .flowItem(1)
                         rewardSection
+                            .flowItem(2)
                         methodSection
+                            .flowItem(3)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
@@ -51,26 +55,8 @@ struct EditLockView: View {
                 VStack(spacing: 0) {
                     PrimaryButton(title: "Save Changes", isDisabled: !canSave) { save() }
                 }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                    .padding(.bottom, 12)
-                    .background {
-                        ZStack(alignment: .top) {
-                            Rectangle()
-                                .fill(.ultraThinMaterial)
-                            LinearGradient(
-                                colors: [Color.clear, Color.black.opacity(0.04)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        }
-                        .ignoresSafeArea(edges: .bottom)
-                    }
-                    .overlay(alignment: .top) {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.36))
-                            .frame(height: 1)
-                    }
+                .glassBottomBarChrome()
+                .flowAppear(delay: 0.08)
             }
             .navigationTitle("Edit Lock")
             .navigationBarTitleDisplayMode(.inline)
@@ -80,6 +66,7 @@ struct EditLockView: View {
                         .disabled(isSaving)
                 }
             }
+            .flowNavigationChrome()
             .familyActivityPicker(isPresented: $isPickerPresented, selection: $draft.selection)
             .background {
                 FamilyActivityPickerNameCapture(isActive: isPickerPresented) { name in
@@ -116,10 +103,10 @@ struct EditLockView: View {
                     AppTokenIconView(lock: draft)
                     VStack(alignment: .leading, spacing: 3) {
                         AppTokenTitleView(lock: draft, fallbackName: displayNameForCurrentSelection)
-                            .font(.headline.weight(.medium))
+                            .font(AppTheme.Typography.headlineMedium)
                             .foregroundStyle(.primary)
                         Text("\(draft.selectedItemCount) item\(draft.selectedItemCount == 1 ? "" : "s") selected")
-                            .font(.subheadline)
+                            .font(AppTheme.Typography.subheadline)
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -177,7 +164,7 @@ struct EditLockView: View {
                 Text(totalMinutes > 0
                      ? "\(limitLabel) of daily use before a challenge"
                      : "Choose at least 1 minute")
-                    .font(.footnote)
+                    .font(AppTheme.Typography.footnoteMedium)
                     .foregroundStyle(.secondary)
             }
             .glassCard(padding: 14)

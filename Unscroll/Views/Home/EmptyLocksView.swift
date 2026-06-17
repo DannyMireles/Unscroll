@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct EmptyLocksView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var action: (() -> Void)? = nil
     var isSpotlight = false
 
@@ -10,7 +11,7 @@ struct EmptyLocksView: View {
         VStack(spacing: 16) {
             HStack {
                 Text("Start here")
-                    .font(.caption.weight(.semibold))
+                    .font(AppTheme.Typography.captionSemibold)
                     .foregroundStyle(AppTheme.accentDeep)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -36,9 +37,9 @@ struct EmptyLocksView: View {
 
             VStack(spacing: 7) {
                 Text("Add your first app lock")
-                    .font(.headline.weight(.semibold))
+                    .font(AppTheme.Typography.headline)
                 Text("Choose an app. Set a limit. Pick a pause.")
-                    .font(.subheadline)
+                    .font(AppTheme.Typography.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
@@ -54,7 +55,7 @@ struct EmptyLocksView: View {
             if let action {
                 Button(action: action) {
                     Label("Add your first app", systemImage: "plus")
-                        .font(.subheadline.weight(.semibold))
+                        .font(AppTheme.Typography.subheadlineMedium)
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -65,13 +66,13 @@ struct EmptyLocksView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.top, 2)
-                .scaleEffect(isSpotlight && isPulsing ? 1.025 : 1.0)
+                .scaleEffect(!reduceMotion && isSpotlight && isPulsing ? 1.025 : 1.0)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .glassCard(padding: 18)
-        .scaleEffect(isSpotlight && isPulsing ? 1.012 : 1.0)
+        .scaleEffect(!reduceMotion && isSpotlight && isPulsing ? 1.012 : 1.0)
         .shadow(color: isSpotlight ? AppTheme.accent.opacity(0.24) : .clear, radius: 22, x: 0, y: 12)
         .overlay {
             if isSpotlight {
@@ -81,7 +82,7 @@ struct EmptyLocksView: View {
                     .stroke(AppTheme.accent.opacity(0.36), style: StrokeStyle(lineWidth: 1.5, dash: [7, 5]))
             }
         }
-        .animation(.spring(response: 0.45, dampingFraction: 0.78), value: isSpotlight)
+        .animation(AppTheme.Motion.selection, value: isSpotlight)
         .onAppear {
             updatePulse()
         }
@@ -91,7 +92,7 @@ struct EmptyLocksView: View {
     }
 
     private func updatePulse() {
-        guard isSpotlight else {
+        guard isSpotlight, !reduceMotion else {
             withAnimation(.easeOut(duration: 0.18)) {
                 isPulsing = false
             }
@@ -105,11 +106,12 @@ struct EmptyLocksView: View {
 }
 
 private struct MovingDottedBorder: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let cornerRadius: CGFloat
 
     var body: some View {
-        TimelineView(.animation) { timeline in
-            let phase = -CGFloat(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 12)) * 10
+        TimelineView(.animation(minimumInterval: reduceMotion ? 60 : nil, paused: reduceMotion)) { timeline in
+            let phase = reduceMotion ? 0 : -CGFloat(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 12)) * 10
 
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(
@@ -133,17 +135,17 @@ private struct FirstLockGuideRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Text("\(number)")
-                .font(.caption.weight(.bold))
+                .font(AppTheme.Typography.captionSemibold)
                 .foregroundStyle(.white)
                 .frame(width: 22, height: 22)
                 .background(AppTheme.accent, in: Circle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppTheme.Typography.subheadlineMedium)
                     .foregroundStyle(.primary)
                 Text(text)
-                    .font(.caption)
+                    .font(AppTheme.Typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -153,6 +155,10 @@ private struct FirstLockGuideRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.white.opacity(0.28), lineWidth: 1)
+        }
     }
 }

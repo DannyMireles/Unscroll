@@ -30,16 +30,20 @@ struct HomeView: View {
                     hero
                         .blur(radius: showFirstLockSpotlight ? 3 : 0)
                         .opacity(showFirstLockSpotlight ? 0.62 : 1)
+                        .flowItem(0)
                     TodayProgressCard(stats: unlockCoordinator.stats)
                         .blur(radius: showFirstLockSpotlight ? 3 : 0)
                         .opacity(showFirstLockSpotlight ? 0.62 : 1)
+                        .flowItem(1)
                     locksSection
+                        .flowItem(2)
 
                     if let message = lockStore.lastErrorMessage {
                         Text(message)
                             .font(.footnote)
                             .foregroundStyle(.red)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .flowItem(3)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -240,7 +244,7 @@ struct HomeView: View {
 
     private var lockList: some View {
         VStack(spacing: 12) {
-            ForEach(lockStore.locks) { lock in
+            ForEach(Array(lockStore.locks.enumerated()), id: \.element.id) { index, lock in
                 LockCard(
                     lock: lock,
                     onEdit: { editingLock = lock },
@@ -249,6 +253,7 @@ struct HomeView: View {
                     onOpenApp: { openOrUnlock(lock) },
                     onCapturedAppName: { name in applyCapturedAppName(name, for: lock) }
                 )
+                .flowItem(index)
             }
         }
     }
@@ -484,7 +489,7 @@ private struct TodayProgressCard: View {
             color: (isActive ? AppTheme.accent : Color(red: 0.30, green: 0.42, blue: 0.50)).opacity(0.32),
             radius: 16, x: 0, y: 10
         )
-        .animation(.easeInOut(duration: 0.4), value: isActive)
+        .animation(AppTheme.Motion.reveal, value: isActive)
     }
 
     private var streakMessage: String {
@@ -500,6 +505,7 @@ private struct TodayProgressCard: View {
 /// A streak icon that gently breathes and glows: a flickering flame when the streak is
 /// alive, or a cool, frosted state inviting the user to start one.
 private struct AnimatedStreakIcon: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let isActive: Bool
 
     @State private var pulse = false
@@ -513,13 +519,13 @@ private struct AnimatedStreakIcon: View {
             Circle()
                 .fill(Color.white.opacity(0.18))
                 .frame(width: 60, height: 60)
-                .scaleEffect(pulse ? 1.08 : 0.94)
+                .scaleEffect(!reduceMotion && pulse ? 1.08 : 0.94)
 
             Image(systemName: isActive ? "flame.fill" : "snowflake")
                 .font(.system(size: 27, weight: .semibold))
                 .foregroundStyle(.white)
-                .scaleEffect(pulse ? 1.07 : 0.95)
-                .shadow(color: glow.opacity(pulse ? 0.95 : 0.35), radius: pulse ? 13 : 5)
+                .scaleEffect(!reduceMotion && pulse ? 1.07 : 0.95)
+                .shadow(color: glow.opacity(!reduceMotion && pulse ? 0.95 : 0.35), radius: !reduceMotion && pulse ? 13 : 5)
         }
         .onAppear { startPulsing() }
         .onChange(of: isActive) { _ in startPulsing() }
@@ -527,6 +533,7 @@ private struct AnimatedStreakIcon: View {
 
     private func startPulsing() {
         pulse = false
+        guard !reduceMotion else { return }
         withAnimation(.easeInOut(duration: isActive ? 0.85 : 1.7).repeatForever(autoreverses: true)) {
             pulse = true
         }

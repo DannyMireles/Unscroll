@@ -42,6 +42,10 @@ enum AppTheme {
         static let backdrop = Animation.easeInOut(duration: 0.30)
 
         static let emphasisDelay: UInt64 = 320_000_000
+
+        static func staggerDelay(_ index: Int, step: Double = 0.055, cap: Double = 0.22) -> Double {
+            min(Double(max(index, 0)) * step, cap)
+        }
     }
 
     // MARK: - Typography
@@ -156,6 +160,10 @@ extension View {
         modifier(FlowAppear(delay: delay))
     }
 
+    func flowItem(_ index: Int, step: Double = 0.055) -> some View {
+        flowAppear(delay: AppTheme.Motion.staggerDelay(index, step: step))
+    }
+
     @ViewBuilder
     func unscrollTypography() -> some View {
         if #available(iOS 16.1, *) {
@@ -175,6 +183,14 @@ extension View {
         } else {
             base
         }
+    }
+
+    func flowNavigationChrome() -> some View {
+        modifier(FlowNavigationChrome())
+    }
+
+    func glassBottomBarChrome(horizontalPadding: CGFloat = 20, topPadding: CGFloat = 12, bottomPadding: CGFloat = 12) -> some View {
+        modifier(GlassBottomBarChrome(horizontalPadding: horizontalPadding, topPadding: topPadding, bottomPadding: bottomPadding))
     }
 }
 
@@ -198,6 +214,47 @@ struct FlowAppear: ViewModifier {
             .offset(y: reduceMotion ? 0 : (isVisible ? 0 : 8))
             .animation((reduceMotion ? AppTheme.Motion.quick : AppTheme.Motion.reveal).delay(delay), value: isVisible)
             .onAppear { isVisible = true }
+    }
+}
+
+struct FlowNavigationChrome: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(colorScheme, for: .navigationBar)
+    }
+}
+
+struct GlassBottomBarChrome: ViewModifier {
+    var horizontalPadding: CGFloat = 20
+    var topPadding: CGFloat = 12
+    var bottomPadding: CGFloat = 12
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, horizontalPadding)
+            .padding(.top, topPadding)
+            .padding(.bottom, bottomPadding)
+            .background {
+                ZStack(alignment: .top) {
+                    Rectangle()
+                        .fill(.ultraThinMaterial)
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.20), Color.clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+                .ignoresSafeArea(edges: .bottom)
+            }
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(Color.white.opacity(0.36))
+                    .frame(height: 1)
+            }
     }
 }
 

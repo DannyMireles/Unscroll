@@ -20,7 +20,7 @@ struct LockCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
                             AppTokenTitleView(lock: lock)
-                                .font(.headline.weight(.semibold))
+                                .font(AppTheme.Typography.headline)
                                 .foregroundStyle(.primary)
 
                             if lock.isPaused {
@@ -33,7 +33,7 @@ struct LockCard: View {
                         }
 
                         Text(metaLine)
-                            .font(.subheadline)
+                            .font(AppTheme.Typography.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -62,10 +62,13 @@ struct LockCard: View {
                 } label: { Label("Delete", systemImage: "trash") }
             } label: {
                 Image(systemName: "ellipsis")
-                    .font(.headline)
+                    .font(AppTheme.Typography.headline)
                     .foregroundStyle(.secondary)
                     .frame(width: 38, height: 38)
-                    .background(Color.secondary.opacity(0.10), in: Circle())
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay {
+                        Circle().stroke(Color.white.opacity(0.32), lineWidth: 1)
+                    }
             }
             .simultaneousGesture(TapGesture().onEnded { Haptics.softTap() })
         }

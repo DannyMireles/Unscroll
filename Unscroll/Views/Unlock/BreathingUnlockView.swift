@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct BreathingUnlockView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let lock: AppLock
     let onComplete: () -> Void
 
@@ -13,48 +14,40 @@ struct BreathingUnlockView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 32) {
-                Spacer(minLength: 12)
+        UnlockScreenScaffold(
+            lock: lock,
+            title: "Take three deep breaths.",
+            subtitle: "A quiet pause before continuing.",
+            screenSpacing: 32
+        ) {
+            VStack(spacing: 28) {
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.accent.opacity(0.14))
+                        .frame(width: 220, height: 220)
+                        .scaleEffect(reduceMotion ? 0.82 : (isExpanded ? 1.0 : 0.58))
+                        .animation(reduceMotion ? nil : .easeInOut(duration: currentStep.duration), value: isExpanded)
 
-                UnlockHeader(
-                    lock: lock,
-                    title: "Take three deep breaths.",
-                    subtitle: "A quiet pause before continuing."
-                )
+                    Circle()
+                        .stroke(AppTheme.accent.opacity(0.35), lineWidth: 1)
+                        .frame(width: 224, height: 224)
 
-                VStack(spacing: 28) {
-                    ZStack {
-                        Circle()
-                            .fill(AppTheme.accent.opacity(0.14))
-                            .frame(width: 220, height: 220)
-                            .scaleEffect(isExpanded ? 1.0 : 0.58)
-                            .animation(.easeInOut(duration: currentStep.duration), value: isExpanded)
-
-                        Circle()
-                            .stroke(AppTheme.accent.opacity(0.35), lineWidth: 1)
-                            .frame(width: 224, height: 224)
-
-                        VStack(spacing: 8) {
-                            Text(currentStep.phase.rawValue)
-                                .font(.system(size: 34, weight: .light, design: .rounded))
-                            Text("Breath \(currentStep.breathNumber) of 3")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
+                    VStack(spacing: 8) {
+                        Text(currentStep.phase.rawValue)
+                            .font(.system(size: 34, weight: .light, design: .rounded))
+                            .contentTransition(.opacity)
+                        Text("Breath \(currentStep.breathNumber) of 3")
+                            .font(AppTheme.Typography.subheadline)
+                            .foregroundStyle(.secondary)
                     }
-
-                    Text("Let the circle guide the pace.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
-                .glassCard()
-                .padding(.horizontal, 20)
 
-                Spacer(minLength: 24)
+                Text("Let the circle guide the pace.")
+                    .font(AppTheme.Typography.subheadline)
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 24)
+        .animation(AppTheme.Motion.quick, value: stepIndex)
         .task {
             await runBreathing()
         }

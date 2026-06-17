@@ -64,6 +64,7 @@ struct AddLockView: View {
                     progressBar
                         .padding(.horizontal, 20)
                         .padding(.top, 8)
+                        .flowAppear()
 
                     Group {
                         if step == completionStep {
@@ -82,8 +83,8 @@ struct AddLockView: View {
                     .animation(AppTheme.Motion.page, value: step)
 
                     bottomBar
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 12)
+                        .glassBottomBarChrome()
+                        .flowAppear(delay: 0.08)
                 }
 
                 if showConfetti {
@@ -104,6 +105,7 @@ struct AddLockView: View {
                         .disabled(isSaving)
                 }
             }
+            .flowNavigationChrome()
             .familyActivityPicker(isPresented: $isPickerPresented, selection: $selection)
             .background {
                 FamilyActivityPickerNameCapture(isActive: isPickerPresented) { name in
@@ -150,24 +152,25 @@ struct AddLockView: View {
 
     private var bottomBar: some View {
         HStack(spacing: 12) {
-            if step > 0 && step < completionStep {
-                Button {
-                    Haptics.softTap()
-                    withAnimation(AppTheme.Motion.page) { step -= 1 }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(AppTheme.Typography.headline)
-                        .foregroundStyle(AppTheme.accentDeep)
-                        .frame(width: 54, height: 54)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
-                                .stroke(Color.white.opacity(0.42), lineWidth: 1)
-                        }
-                }
-                .buttonStyle(.plain)
-                .disabled(isSaving)
+            Button {
+                guard step > 0 && step < completionStep else { return }
+                Haptics.softTap()
+                withAnimation(AppTheme.Motion.page) { step -= 1 }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(AppTheme.Typography.headline)
+                    .foregroundStyle(AppTheme.accentDeep)
+                    .frame(width: 54, height: 54)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
+                            .stroke(Color.white.opacity(0.42), lineWidth: 1)
+                    }
             }
+            .buttonStyle(.plain)
+            .disabled(isSaving || step <= 0 || step >= completionStep)
+            .opacity(step > 0 && step < completionStep ? 1 : 0)
+            .allowsHitTesting(step > 0 && step < completionStep)
 
             PrimaryButton(
                 title: primaryButtonTitle,
@@ -494,12 +497,15 @@ private struct StepScaffold<Content: View>: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                .flowItem(0)
 
                 if let cue {
                     TutorialCue(text: cue)
+                        .flowItem(1)
                 }
 
                 content
+                    .flowItem(cue == nil ? 1 : 2)
             }
             .padding(.horizontal, 20)
             .padding(.top, 24)
@@ -510,6 +516,7 @@ private struct StepScaffold<Content: View>: View {
 }
 
 private struct TutorialCue: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let text: String
     @State private var isPulsing = false
 
@@ -530,8 +537,9 @@ private struct TutorialCue: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(AppTheme.accentSoft, in: RoundedRectangle(cornerRadius: AppTheme.cornerSmall, style: .continuous))
-        .scaleEffect(isPulsing ? 1.012 : 1.0)
+        .scaleEffect(!reduceMotion && isPulsing ? 1.012 : 1.0)
         .onAppear {
+            guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 isPulsing = true
             }
@@ -696,6 +704,7 @@ struct BigChoiceCard: View {
 // MARK: - Shared components (also used by EditLockView)
 
 private struct AppPickerCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let selection: FamilyActivitySelection
     let hasSelection: Bool
     let selectedItemCount: Int
@@ -756,7 +765,7 @@ private struct AppPickerCard: View {
             RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
                 .stroke(AppTheme.accent.opacity(isHighlighted ? 0.68 : 0), lineWidth: 2)
         }
-        .scaleEffect(isHighlighted && isPulsing ? 1.012 : 1.0)
+        .scaleEffect(!reduceMotion && isHighlighted && isPulsing ? 1.012 : 1.0)
         .animation(AppTheme.Motion.selection, value: isHighlighted)
         .onAppear {
             updatePulse()
@@ -767,7 +776,7 @@ private struct AppPickerCard: View {
     }
 
     private func updatePulse() {
-        guard isHighlighted else {
+        guard isHighlighted, !reduceMotion else {
             withAnimation(AppTheme.Motion.quick) { isPulsing = false }
             return
         }
@@ -1004,17 +1013,20 @@ struct MethodPreviewView: View {
                 ScrollView {
                     VStack(spacing: 18) {
                         Text(method.description)
-                            .font(.subheadline)
+                            .font(AppTheme.Typography.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 24)
+                            .flowItem(0)
 
                         preview
                             .padding(.horizontal, 20)
+                            .flowItem(1)
 
                         Text("Preview only.")
-                            .font(.caption)
+                            .font(AppTheme.Typography.caption)
                             .foregroundStyle(.secondary)
+                            .flowItem(2)
                     }
                     .padding(.top, 18)
                     .padding(.bottom, 26)
@@ -1027,6 +1039,7 @@ struct MethodPreviewView: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .flowNavigationChrome()
         }
     }
 

@@ -452,6 +452,7 @@ struct GlassNoticeOverlay: View {
                         .frame(width: 44, height: 44)
                         .background(.ultraThinMaterial, in: Circle())
                         .overlay { Circle().stroke(Color.white.opacity(0.42), lineWidth: 1) }
+                        .flowItem(0)
 
                     VStack(spacing: 5) {
                         Text(title)
@@ -464,8 +465,10 @@ struct GlassNoticeOverlay: View {
                             .lineLimit(4)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    .flowItem(1)
 
                     ModalPrimaryButton(title: buttonTitle, action: onDismiss)
+                        .flowItem(2)
                 }
             }
         }
@@ -510,19 +513,21 @@ struct AppLinkSetupView: View {
                             .font(.title2.weight(.semibold))
                             .foregroundStyle(AppTheme.accentDeep)
                             .frame(width: 44, height: 44)
-                            .background(AppTheme.accentSoft, in: Circle())
+                            .background(.ultraThinMaterial, in: Circle())
+                            .overlay { Circle().stroke(Color.white.opacity(0.34), lineWidth: 1) }
 
                         VStack(spacing: 4) {
                             Text("Link this app")
-                                .font(.headline.weight(.semibold))
+                                .font(AppTheme.Typography.headline)
                             Text("Type the App Store name once. We'll remember it.")
-                                .font(.subheadline)
+                                .font(AppTheme.Typography.subheadline)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
+                    .flowItem(0)
 
                     VStack(alignment: .leading, spacing: 8) {
                         TextField("TikTok", text: $appName)
@@ -531,7 +536,7 @@ struct AppLinkSetupView: View {
                             .submitLabel(.done)
                             .focused($isNameFieldFocused)
                             .onSubmit(resolveAppLink)
-                            .font(.headline)
+                            .font(AppTheme.Typography.headline)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 12)
                             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
@@ -561,13 +566,15 @@ struct AppLinkSetupView: View {
                             }
                         }
                     }
+                    .flowItem(1)
 
                     if let errorMessage {
                         Text(errorMessage)
-                            .font(.footnote.weight(.medium))
+                            .font(AppTheme.Typography.footnoteMedium)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
+                            .transition(.opacity.combined(with: .offset(y: 6)))
                     }
 
                     HStack(spacing: 10) {
@@ -584,9 +591,11 @@ struct AppLinkSetupView: View {
                             resolveAppLink()
                         }
                     }
+                    .flowItem(2)
                 }
             }
         }
+        .animation(AppTheme.Motion.reveal, value: errorMessage)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                 isNameFieldFocused = true
