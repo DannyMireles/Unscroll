@@ -79,7 +79,7 @@ struct AddLockView: View {
                             .tabViewStyle(.page(indexDisplayMode: .never))
                         }
                     }
-                    .animation(.easeInOut(duration: 0.25), value: step)
+                    .animation(AppTheme.Motion.page, value: step)
 
                     bottomBar
                         .padding(.horizontal, 20)
@@ -130,7 +130,7 @@ struct AddLockView: View {
             .sheet(item: $previewMethod) { method in
                 MethodPreviewView(method: method)
                     .presentationDetents([.fraction(0.82), .large])
-                    .presentationDragIndicator(.visible)
+                    .flowSheetPresentation()
             }
         }
         .interactiveDismissDisabled(isSaving)
@@ -153,13 +153,17 @@ struct AddLockView: View {
             if step > 0 && step < completionStep {
                 Button {
                     Haptics.softTap()
-                    withAnimation(.easeInOut(duration: 0.25)) { step -= 1 }
+                    withAnimation(AppTheme.Motion.page) { step -= 1 }
                 } label: {
                     Image(systemName: "chevron.left")
-                        .font(.headline.weight(.semibold))
+                        .font(AppTheme.Typography.headline)
                         .foregroundStyle(AppTheme.accentDeep)
                         .frame(width: 54, height: 54)
-                        .background(AppTheme.accentSoft, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
+                                .stroke(Color.white.opacity(0.42), lineWidth: 1)
+                        }
                 }
                 .buttonStyle(.plain)
                 .disabled(isSaving)
@@ -177,7 +181,7 @@ struct AddLockView: View {
                 } else if step == lastStep {
                     save()
                 } else {
-                    withAnimation(.easeInOut(duration: 0.25)) { step += 1 }
+                    withAnimation(AppTheme.Motion.page) { step += 1 }
                 }
             }
         }
@@ -381,7 +385,7 @@ struct AddLockView: View {
             createdLock = created
             isSaving = false
             Haptics.celebrationDing()
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+            withAnimation(AppTheme.Motion.popup) {
                 step = completionStep
             }
             triggerConfetti(from: .top)
@@ -454,7 +458,7 @@ struct AddLockView: View {
     private func triggerConfetti(from start: ConfettiStart = .top) {
         confettiStart = start
         confettiBurstID += 1
-        withAnimation(.easeIn(duration: 0.12)) {
+        withAnimation(AppTheme.Motion.quick) {
             showConfetti = true
         }
 
@@ -462,7 +466,7 @@ struct AddLockView: View {
         Task {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             guard currentID == confettiBurstID else { return }
-            withAnimation(.easeOut(duration: 0.25)) {
+            withAnimation(AppTheme.Motion.quick) {
                 showConfetti = false
             }
         }
@@ -482,10 +486,10 @@ private struct StepScaffold<Content: View>: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(title)
-                        .font(.system(.title, design: .rounded).weight(.semibold))
+                        .font(AppTheme.Typography.title)
                     if let subtitle, !subtitle.isEmpty {
                         Text(subtitle)
-                            .font(.subheadline)
+                            .font(AppTheme.Typography.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -685,7 +689,7 @@ struct BigChoiceCard: View {
             .shadow(color: isSelected ? AppTheme.accent.opacity(0.22) : .clear, radius: 12, x: 0, y: 7)
         }
         .buttonStyle(.plain)
-        .animation(.spring(response: 0.34, dampingFraction: 0.58), value: isSelected)
+        .animation(AppTheme.Motion.selection, value: isSelected)
     }
 }
 
@@ -753,7 +757,7 @@ private struct AppPickerCard: View {
                 .stroke(AppTheme.accent.opacity(isHighlighted ? 0.68 : 0), lineWidth: 2)
         }
         .scaleEffect(isHighlighted && isPulsing ? 1.012 : 1.0)
-        .animation(.spring(response: 0.42, dampingFraction: 0.78), value: isHighlighted)
+        .animation(AppTheme.Motion.selection, value: isHighlighted)
         .onAppear {
             updatePulse()
         }
@@ -764,7 +768,7 @@ private struct AppPickerCard: View {
 
     private func updatePulse() {
         guard isHighlighted else {
-            withAnimation(.easeOut(duration: 0.18)) { isPulsing = false }
+            withAnimation(AppTheme.Motion.quick) { isPulsing = false }
             return
         }
 
@@ -956,7 +960,7 @@ private struct UnlockMethodTile: View {
                 .scaleEffect(isSelected ? 1.02 : 1.0)
             }
             .buttonStyle(.plain)
-            .animation(.spring(response: 0.34, dampingFraction: 0.58), value: isSelected)
+            .animation(AppTheme.Motion.selection, value: isSelected)
 
             if let onPreview {
                 Button {

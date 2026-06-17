@@ -5,7 +5,7 @@ struct SectionTitle: View {
 
     var body: some View {
         Text(title)
-            .font(.footnote.weight(.semibold))
+            .font(AppTheme.Typography.footnoteSemibold)
             .foregroundStyle(AppTheme.accentDeep.opacity(0.7))
             .textCase(.uppercase)
             .tracking(1.4)

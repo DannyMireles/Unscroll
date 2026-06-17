@@ -68,13 +68,42 @@ struct HomeView: View {
                 AppLinkSetupView(
                     lock: linkSetupLock,
                     onLinked: openLinkedApp,
-                    onCancel: { self.linkSetupLock = nil }
+                    onCancel: { dismissLinkSetup() }
                 )
                 .id(linkSetupLock.id)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .transition(.flowPopup)
                 .zIndex(20)
             }
+
+            if showScreenTimeRequiredAlert {
+                GlassNoticeOverlay(
+                    title: "Screen Time Access Needed",
+                    message: "Screen Time access is required before creating locks."
+                ) {
+                    withAnimation(AppTheme.Motion.popup) {
+                        showScreenTimeRequiredAlert = false
+                    }
+                }
+                .transition(.flowPopup)
+                .zIndex(21)
+            }
+
+            if let unavailableLock {
+                GlassNoticeOverlay(
+                    title: unavailableTitle(for: unavailableLock),
+                    message: unavailableMessage(for: unavailableLock)
+                ) {
+                    withAnimation(AppTheme.Motion.popup) {
+                        self.unavailableLock = nil
+                    }
+                }
+                .transition(.flowPopup)
+                .zIndex(22)
+            }
         }
+        .animation(AppTheme.Motion.popup, value: linkSetupLock?.id)
+        .animation(AppTheme.Motion.popup, value: showScreenTimeRequiredAlert)
+        .animation(AppTheme.Motion.popup, value: unavailableLock?.id)
         .task {
             await refreshNotificationStatus()
         }
@@ -85,32 +114,18 @@ struct HomeView: View {
             AddLockView(onCreated: { _ in
                 requestNotificationPermissionAfterSheetDismisses()
             })
+            .flowSheetPresentation()
         }
         .sheet(item: $editingLock) { lock in
             EditLockView(lock: lock)
-        }
-        .alert("Screen Time Access Needed", isPresented: $showScreenTimeRequiredAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("Screen Time access is required before creating locks.")
-        }
-        .alert(
-            unavailableLock.map(unavailableTitle(for:)) ?? "Apps unlocked",
-            isPresented: Binding(
-                get: { unavailableLock != nil },
-                set: { if !$0 { unavailableLock = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) { unavailableLock = nil }
-        } message: {
-            Text(unavailableLock.map(unavailableMessage(for:)) ?? "")
+                .flowSheetPresentation()
         }
     }
 
     private var themeToggle: some View {
         Button {
             let goingDark = colorScheme != .dark
-            withAnimation(.easeInOut(duration: 0.25)) {
+            withAnimation(AppTheme.Motion.quick) {
                 themePreference = (goingDark ? ThemePreference.dark : .light).rawValue
             }
             Haptics.softTap()
@@ -165,9 +180,9 @@ struct HomeView: View {
 
             VStack(spacing: 6) {
                 Text("Unscroll")
-                    .font(.system(.title, design: .rounded).weight(.semibold))
+                    .font(AppTheme.Typography.title)
                 Text(AppTheme.tagline)
-                    .font(.subheadline.weight(.medium))
+                    .font(AppTheme.Typography.subheadlineMedium)
                     .foregroundStyle(AppTheme.accentDeep.opacity(0.85))
                     .multilineTextAlignment(.center)
             }
@@ -242,12 +257,14 @@ struct HomeView: View {
         Haptics.softTap()
         if permissionManager.isAuthorized {
             didActOnFirstLockSpotlight = true
-            withAnimation(.easeOut(duration: 0.22)) {
+            withAnimation(AppTheme.Motion.quick) {
                 showFirstLockSpotlight = false
             }
             isAddingLock = true
         } else {
-            showScreenTimeRequiredAlert = true
+            withAnimation(AppTheme.Motion.popup) {
+                showScreenTimeRequiredAlert = true
+            }
         }
     }
 
@@ -277,19 +294,27 @@ struct HomeView: View {
     /// Tapping "Open" can't launch anything when a lock doesn't resolve to one app. Surface an
     /// honest message; for a category / multi-app lock there's simply no single app to open.
     private func handleOpenUnavailable(for lock: AppLock) {
-        if lock.canDeepLink {
-            linkSetupLock = lock
-        } else {
-            unavailableLock = lock
+        withAnimation(AppTheme.Motion.popup) {
+            if lock.canDeepLink {
+                linkSetupLock = lock
+            } else {
+                unavailableLock = lock
+            }
         }
     }
 
     private func openLinkedApp(_ lock: AppLock) {
-        linkSetupLock = nil
+        dismissLinkSetup()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             AppLaunchHelper.openTargetApp(for: lock) {
                 handleOpenUnavailable(for: lock)
             }
+        }
+    }
+
+    private func dismissLinkSetup() {
+        withAnimation(AppTheme.Motion.popup) {
+            linkSetupLock = nil
         }
     }
 
@@ -323,10 +348,10 @@ struct HomeView: View {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 450_000_000)
             guard lockStore.locks.isEmpty else { return }
-            withAnimation(.spring(response: 0.7, dampingFraction: 0.88)) {
+            withAnimation(AppTheme.Motion.popup) {
                 proxy.scrollTo(firstLockGuideID, anchor: .top)
             }
-            withAnimation(.easeInOut(duration: 0.22)) {
+            withAnimation(AppTheme.Motion.quick) {
                 showFirstLockSpotlight = true
             }
         }

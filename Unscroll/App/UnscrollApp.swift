@@ -13,6 +13,7 @@ struct UnscrollApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .unscrollTypography()
                 .environmentObject(lockStore)
                 .environmentObject(permissionManager)
                 .environmentObject(unlockCoordinator)

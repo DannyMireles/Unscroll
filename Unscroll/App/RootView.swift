@@ -35,7 +35,7 @@ struct RootView: View {
 
             if showSuccessAlert {
                 successOverlay
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .transition(.flowPopup)
                     .zIndex(10)
             }
 
@@ -43,14 +43,30 @@ struct RootView: View {
                 AppLinkSetupView(
                     lock: linkSetupLock,
                     onLinked: retryOpenAfterLink,
-                    onCancel: { self.linkSetupLock = nil }
+                    onCancel: { dismissLinkSetup() }
                 )
                 .id(linkSetupLock.id)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                .transition(.flowPopup)
                 .zIndex(11)
+            }
+
+            if let unavailableLock {
+                GlassNoticeOverlay(
+                    title: unavailableTitle(for: unavailableLock),
+                    message: unavailableMessage(for: unavailableLock)
+                ) {
+                    withAnimation(AppTheme.Motion.popup) {
+                        self.unavailableLock = nil
+                    }
+                }
+                .transition(.flowPopup)
+                .zIndex(12)
             }
         }
         .dismissKeyboardOnBackgroundTap()
+        .animation(AppTheme.Motion.popup, value: showSuccessAlert)
+        .animation(AppTheme.Motion.popup, value: linkSetupLock?.id)
+        .animation(AppTheme.Motion.popup, value: unavailableLock?.id)
         .sheet(item: $unlockCoordinator.activeLock) { lock in
             UnlockFlowView(lock: lock) {
                 Task {
@@ -60,26 +76,16 @@ struct RootView: View {
                     grantedMinutes = granted
                     completedLock = lockStore.locks.first(where: { $0.id == lock.id }) ?? lock
                     Haptics.celebrationDing()
-                    withAnimation(.spring(response: 0.36, dampingFraction: 0.88)) {
+                    withAnimation(AppTheme.Motion.popup) {
                         showSuccessAlert = true
                     }
                     triggerSuccessConfetti()
                 }
             }
             .interactiveDismissDisabled()
+            .flowSheetPresentation(dragIndicator: .hidden)
         }
         .preferredColorScheme(preferredScheme)
-        .alert(
-            unavailableLock.map(unavailableTitle(for:)) ?? "Apps unlocked",
-            isPresented: Binding(
-                get: { unavailableLock != nil },
-                set: { if !$0 { unavailableLock = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) { unavailableLock = nil }
-        } message: {
-            Text(unavailableLock.map(unavailableMessage(for:)) ?? "")
-        }
         .task {
             await Task.yield()
             unlockCoordinator.consumePendingUnlock()
@@ -238,7 +244,7 @@ struct RootView: View {
     }
 
     private func dismissSuccessOverlay() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+        withAnimation(AppTheme.Motion.popup) {
             showSuccessAlert = false
             showSuccessConfetti = false
             isPreparingOpenApp = false
@@ -262,19 +268,27 @@ struct RootView: View {
     }
 
     private func handleOpenUnavailable(for lock: AppLock) {
-        if lock.canDeepLink {
-            linkSetupLock = lock
-        } else {
-            unavailableLock = lock
+        withAnimation(AppTheme.Motion.popup) {
+            if lock.canDeepLink {
+                linkSetupLock = lock
+            } else {
+                unavailableLock = lock
+            }
         }
     }
 
     private func retryOpenAfterLink(_ lock: AppLock) {
-        linkSetupLock = nil
+        dismissLinkSetup()
         completedLock = lock
         isPreparingOpenApp = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             openWhenReady(lock)
+        }
+    }
+
+    private func dismissLinkSetup() {
+        withAnimation(AppTheme.Motion.popup) {
+            linkSetupLock = nil
         }
     }
 
@@ -298,17 +312,23 @@ struct RootView: View {
 /// triggers `onTap` (used to dismiss). Fills the whole screen regardless of where the
 /// hosting overlay is attached.
 struct ModalBackdrop: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var onTap: (() -> Void)? = nil
+    @State private var isVisible = false
 
     var body: some View {
         ZStack {
             Rectangle()
                 .fill(.ultraThinMaterial)
-            Color.black.opacity(0.22)
+                .opacity(isVisible ? 1 : 0)
+            AppTheme.modalScrim
+                .opacity(isVisible ? 1 : 0)
         }
+        .animation(reduceMotion ? AppTheme.Motion.quick : AppTheme.Motion.backdrop, value: isVisible)
         .ignoresSafeArea()
         .contentShape(Rectangle())
         .onTapGesture { onTap?() }
+        .onAppear { isVisible = true }
     }
 }
 
@@ -332,7 +352,7 @@ struct ModalPrimaryButton: View {
                     Text(title)
                 }
             }
-            .font(.headline.weight(.semibold))
+            .font(AppTheme.Typography.headline)
             .lineLimit(1)
             .foregroundStyle(isDisabled ? Color.secondary : .white)
             .frame(maxWidth: .infinity)
@@ -365,11 +385,15 @@ struct ModalSecondaryButton: View {
             action()
         } label: {
             Text(title)
-                .font(.headline.weight(.semibold))
+                .font(AppTheme.Typography.headline)
                 .foregroundStyle(AppTheme.accentDeep)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(AppTheme.accentSoft, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
+                        .stroke(Color.white.opacity(0.42), lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
     }
@@ -393,13 +417,58 @@ struct ModalCard<Content: View>: View {
             .padding(18)
             .frame(maxWidth: maxWidth)
             .fixedSize(horizontal: false, vertical: true)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+            .background {
+                RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.05) : Color.white.opacity(0.30))
+                    }
+            }
             .overlay {
                 RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
-                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.12 : 0.45), lineWidth: 1)
+                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.18 : 0.60), lineWidth: 1)
             }
-            .shadow(color: Color.black.opacity(0.22), radius: 26, x: 0, y: 14)
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.34 : 0.18), radius: 30, x: 0, y: 18)
             .padding(.horizontal, 24)
+    }
+}
+
+struct GlassNoticeOverlay: View {
+    let title: String
+    let message: String
+    var buttonTitle = "OK"
+    let onDismiss: () -> Void
+
+    var body: some View {
+        ZStack {
+            ModalBackdrop(onTap: onDismiss)
+
+            ModalCard {
+                VStack(spacing: 14) {
+                    Image(systemName: "sparkles")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppTheme.accentDeep)
+                        .frame(width: 44, height: 44)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay { Circle().stroke(Color.white.opacity(0.42), lineWidth: 1) }
+
+                    VStack(spacing: 5) {
+                        Text(title)
+                            .font(AppTheme.Typography.headline)
+                            .multilineTextAlignment(.center)
+                        Text(message)
+                            .font(AppTheme.Typography.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    ModalPrimaryButton(title: buttonTitle, action: onDismiss)
+                }
+            }
+        }
     }
 }
 

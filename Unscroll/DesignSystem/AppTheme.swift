@@ -15,6 +15,9 @@ enum AppTheme {
     static let textPrimary = Color.primary
     static let textSecondary = Color.secondary
     static let softShadow = Color.black.opacity(0.06)
+    static let glassHighlight = Color.white.opacity(0.34)
+    static let glassLowlight = Color.black.opacity(0.05)
+    static let modalScrim = Color.black.opacity(0.18)
 
     // MARK: - Shape
 
@@ -26,6 +29,39 @@ enum AppTheme {
 
     static let tagline = "Train your mind. Earn your scroll."
     static let subtagline = "Keep the apps. Add one clean pause."
+
+    // MARK: - Motion
+
+    enum Motion {
+        static let quick = Animation.easeInOut(duration: 0.22)
+        static let page = Animation.easeInOut(duration: 0.34)
+        static let reveal = Animation.easeOut(duration: 0.46)
+        static let emphasis = Animation.easeOut(duration: 0.52)
+        static let popup = Animation.spring(response: 0.42, dampingFraction: 0.88, blendDuration: 0.08)
+        static let selection = Animation.spring(response: 0.34, dampingFraction: 0.72, blendDuration: 0.06)
+        static let backdrop = Animation.easeInOut(duration: 0.30)
+
+        static let emphasisDelay: UInt64 = 320_000_000
+    }
+
+    // MARK: - Typography
+
+    enum Typography {
+        static let display = Font.system(.largeTitle, design: .rounded).weight(.semibold)
+        static let title = Font.system(.title, design: .rounded).weight(.semibold)
+        static let title2 = Font.system(.title2, design: .rounded).weight(.semibold)
+        static let headline = Font.system(.headline, design: .rounded).weight(.semibold)
+        static let headlineMedium = Font.system(.headline, design: .rounded).weight(.medium)
+        static let body = Font.system(.body, design: .rounded)
+        static let bodyMedium = Font.system(.body, design: .rounded).weight(.medium)
+        static let subheadline = Font.system(.subheadline, design: .rounded)
+        static let subheadlineMedium = Font.system(.subheadline, design: .rounded).weight(.medium)
+        static let caption = Font.system(.caption, design: .rounded)
+        static let captionMedium = Font.system(.caption, design: .rounded).weight(.medium)
+        static let captionSemibold = Font.system(.caption, design: .rounded).weight(.semibold)
+        static let footnoteMedium = Font.system(.footnote, design: .rounded).weight(.medium)
+        static let footnoteSemibold = Font.system(.footnote, design: .rounded).weight(.semibold)
+    }
 }
 
 /// App-wide appearance preference, persisted via `@AppStorage("themePreference")`.
@@ -50,18 +86,26 @@ struct AppBackground: View {
         ZStack {
             LinearGradient(
                 colors: colorScheme == .dark
-                    ? [Color(red: 0.06, green: 0.08, blue: 0.08), Color(red: 0.09, green: 0.13, blue: 0.12)]
-                    : [Color(red: 0.97, green: 0.98, blue: 0.97), Color(red: 0.90, green: 0.94, blue: 0.92)],
+                    ? [
+                        Color(red: 0.05, green: 0.07, blue: 0.08),
+                        Color(red: 0.08, green: 0.12, blue: 0.11),
+                        Color(red: 0.07, green: 0.09, blue: 0.12)
+                    ]
+                    : [
+                        Color(red: 0.98, green: 0.99, blue: 0.98),
+                        Color(red: 0.91, green: 0.95, blue: 0.93),
+                        Color(red: 0.92, green: 0.95, blue: 0.98)
+                    ],
                 startPoint: .top,
                 endPoint: .bottom
             )
 
-            // A soft glow anchored top-trailing adds depth without clutter.
-            RadialGradient(
-                colors: [AppTheme.accent.opacity(colorScheme == .dark ? 0.18 : 0.12), .clear],
-                center: .topTrailing,
-                startRadius: 12,
-                endRadius: 460
+            LinearGradient(
+                colors: colorScheme == .dark
+                    ? [AppTheme.accent.opacity(0.10), Color.clear, Color.white.opacity(0.03)]
+                    : [AppTheme.accent.opacity(0.09), Color.clear, Color.white.opacity(0.34)],
+                startPoint: .topTrailing,
+                endPoint: .bottomLeading
             )
         }
         .ignoresSafeArea()
@@ -76,18 +120,130 @@ struct GlassCard: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(padding)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+            .background {
+                RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.04) : Color.white.opacity(0.26))
+                    }
+            }
             .overlay {
                 RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
-                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.10 : 0.55), lineWidth: 1)
+                    .stroke(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(colorScheme == .dark ? 0.18 : 0.70),
+                                Color.white.opacity(colorScheme == .dark ? 0.05 : 0.24),
+                                AppTheme.glassLowlight.opacity(colorScheme == .dark ? 0.18 : 0.10)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
             }
-            .shadow(color: AppTheme.softShadow, radius: 18, x: 0, y: 12)
+            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.22 : 0.07), radius: 22, x: 0, y: 14)
     }
 }
 
 extension View {
     func glassCard(padding: CGFloat = 18) -> some View {
         modifier(GlassCard(padding: padding))
+    }
+
+    func flowAppear(delay: Double = 0) -> some View {
+        modifier(FlowAppear(delay: delay))
+    }
+
+    @ViewBuilder
+    func unscrollTypography() -> some View {
+        if #available(iOS 16.1, *) {
+            self.fontDesign(.rounded)
+        } else {
+            self.font(AppTheme.Typography.body)
+        }
+    }
+
+    @ViewBuilder
+    func flowSheetPresentation(dragIndicator: Visibility = .visible) -> some View {
+        let base = self.presentationDragIndicator(dragIndicator)
+        if #available(iOS 16.4, *) {
+            base
+                .presentationBackground(.ultraThinMaterial)
+                .presentationCornerRadius(AppTheme.cornerLarge)
+        } else {
+            base
+        }
+    }
+}
+
+extension AnyTransition {
+    static var flowPopup: AnyTransition {
+        .opacity
+            .combined(with: .scale(scale: 0.96, anchor: .center))
+            .combined(with: .offset(y: 10))
+    }
+}
+
+struct FlowAppear: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
+    var delay: Double = 0
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(isVisible ? 1 : 0)
+            .blur(radius: reduceMotion ? 0 : (isVisible ? 0 : 5))
+            .offset(y: reduceMotion ? 0 : (isVisible ? 0 : 8))
+            .animation((reduceMotion ? AppTheme.Motion.quick : AppTheme.Motion.reveal).delay(delay), value: isVisible)
+            .onAppear { isVisible = true }
+    }
+}
+
+struct FlowHeadlineText: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let lead: String
+    let emphasis: String
+    var isActive = true
+    var font: Font = AppTheme.Typography.title
+    var compactFont: Font = AppTheme.Typography.title2
+    var isCompact = false
+    var alignment: TextAlignment = .center
+
+    @State private var showEmphasis = false
+
+    var body: some View {
+        VStack(spacing: isCompact ? 3 : 5) {
+            Text(lead)
+                .font(isCompact ? compactFont : font)
+                .multilineTextAlignment(alignment)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text(emphasis)
+                .font(isCompact ? compactFont : font)
+                .foregroundStyle(AppTheme.accentDeep)
+                .multilineTextAlignment(alignment)
+                .fixedSize(horizontal: false, vertical: true)
+                .opacity(showEmphasis ? 1 : 0)
+                .blur(radius: reduceMotion ? 0 : (showEmphasis ? 0 : 4))
+                .offset(y: reduceMotion ? 0 : (showEmphasis ? 0 : 6))
+        }
+        .task(id: isActive) {
+            guard isActive else {
+                showEmphasis = false
+                return
+            }
+
+            showEmphasis = false
+            try? await Task.sleep(nanoseconds: reduceMotion ? 0 : AppTheme.Motion.emphasisDelay)
+            guard !Task.isCancelled else { return }
+
+            withAnimation(reduceMotion ? AppTheme.Motion.quick : AppTheme.Motion.emphasis) {
+                showEmphasis = true
+            }
+        }
     }
 }
 

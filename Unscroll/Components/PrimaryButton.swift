@@ -11,7 +11,7 @@ struct PrimaryButton: View {
             action()
         } label: {
             Text(title)
-                .font(.headline.weight(.semibold))
+                .font(AppTheme.Typography.headline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
                 .background(
