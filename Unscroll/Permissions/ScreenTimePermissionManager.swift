@@ -9,9 +9,26 @@ final class ScreenTimePermissionManager: ObservableObject {
     @Published var permissionErrorMessage: String?
 
     private var authorizationObserver: AnyCancellable?
-    private var authorizationRequestErrorMessage: String?
+
+    private let defaults = UserDefaults(suiteName: AppConstants.appGroupIdentifier)
+    private let authorizedKey = "screenTime.authorizedOnce"
+
+    /// Persisted "the user has successfully authorized us at least once" flag.
+    ///
+    /// `AuthorizationCenter.shared.authorizationStatus` is unreliable for individual
+    /// authorization — it frequently reports `.notDetermined` even when access is granted
+    /// (visible as "on" in Settings). Relying on it kicked authorized users back to the
+    /// onboarding screen on every relaunch. We trust this flag instead, and only clear it
+    /// when the system explicitly reports `.denied`.
+    private var authorizedOnce: Bool {
+        get { defaults?.bool(forKey: authorizedKey) ?? false }
+        set { defaults?.set(newValue, forKey: authorizedKey) }
+    }
 
     init() {
+        if status == .approved {
+            authorizedOnce = true
+        }
         authorizationObserver = AuthorizationCenter.shared.$authorizationStatus
             .sink { [weak self] newStatus in
                 Task { @MainActor in
@@ -21,7 +38,7 @@ final class ScreenTimePermissionManager: ObservableObject {
     }
 
     var isAuthorized: Bool {
-        status == .approved
+        status == .approved || authorizedOnce
     }
 
     var canEnterApp: Bool {
@@ -29,15 +46,12 @@ final class ScreenTimePermissionManager: ObservableObject {
     }
 
     var statusLabel: String {
+        if isAuthorized { return "Allowed" }
         switch status {
-        case .approved:
-            return "Allowed"
         case .denied:
             return "Not allowed"
-        case .notDetermined:
-            return "Waiting for approval"
-        @unknown default:
-            return "Unknown"
+        default:
+            return "Not set up yet"
         }
     }
 
@@ -50,65 +64,68 @@ final class ScreenTimePermissionManager: ObservableObject {
 
         isRequesting = true
         permissionErrorMessage = nil
-        authorizationRequestErrorMessage = nil
+        defer { isRequesting = false }
 
         do {
             try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
-            await refreshStatusUntilSettled()
+            // A non-throwing return means the system granted access — it throws on
+            // cancel/failure. Persist that and trust it; the cached status property can
+            // lag (or never update) after a (re)install.
+            authorizedOnce = true
+            apply(status: .approved)
         } catch {
-            authorizationRequestErrorMessage = message(forAuthorizationError: error)
-            await refreshStatusUntilSettled()
-        }
-
-        updateMessageForCurrentStatus()
-        isRequesting = false
-    }
-
-    private func refreshStatusUntilSettled() async {
-        for _ in 1...10 {
             apply(status: AuthorizationCenter.shared.authorizationStatus)
-
-            if status == .approved || status == .denied {
-                return
+            if !isAuthorized {
+                permissionErrorMessage = message(for: error)
             }
-
-            try? await Task.sleep(nanoseconds: 250_000_000)
         }
     }
 
     private func apply(status newStatus: AuthorizationStatus) {
-        status = newStatus
-
-        if newStatus == .approved {
-            permissionErrorMessage = nil
-        }
-    }
-
-    private func updateMessageForCurrentStatus() {
-        if let authorizationRequestErrorMessage {
-            permissionErrorMessage = authorizationRequestErrorMessage
-            return
-        }
-
-        switch status {
+        switch newStatus {
         case .approved:
+            status = .approved
+            authorizedOnce = true
             permissionErrorMessage = nil
         case .denied:
-            permissionErrorMessage = "Screen Time access is off for Unscroll. Enable access to continue."
-        case .notDetermined:
-            permissionErrorMessage = "Screen Time has not approved access yet. Make sure Screen Time is turned on for this device, then try again."
-        @unknown default:
-            permissionErrorMessage = "Screen Time access is unavailable on this device right now."
+            // Explicit denial is the only signal we trust to revoke access.
+            status = .denied
+            authorizedOnce = false
+        default:
+            // `.notDetermined` (and any future cases) are unreliable for individual
+            // authorization, so never use them to downgrade a user we've seen approved.
+            if !authorizedOnce {
+                status = newStatus
+            }
         }
     }
 
-    private func message(forAuthorizationError error: Error) -> String {
-        let nsError = error as NSError
+    /// Actionable message for the most common failure — a leftover authorization from a
+    /// previous install. We never tell the user access is permanently "unavailable".
+    private var recoveryMessage: String {
+        "Screen Time didn't finish approving access. If you recently reinstalled Unscroll, restart your device (or turn Screen Time off and back on in Settings › Screen Time), then tap Enable Screen Time again."
+    }
 
-        if nsError.localizedDescription.localizedCaseInsensitiveContains("device passcode") {
-            return "A device passcode is required before Screen Time access can be granted."
+    private func message(for error: Error) -> String {
+        let nsError = error as NSError
+        let description = nsError.localizedDescription.lowercased()
+
+        if description.contains("passcode") {
+            return "Set a device passcode in Settings, then tap Enable Screen Time again."
         }
 
-        return "Screen Time could not grant access: \(nsError.localizedDescription)"
+        if description.contains("cancel") {
+            return "That request was canceled. Tap Enable Screen Time to try again."
+        }
+
+        if description.contains("network") || description.contains("internet") || description.contains("connection") {
+            return "Screen Time couldn't reach Apple's servers. Check your connection, then tap Enable Screen Time again."
+        }
+
+        if description.contains("account") || description.contains("icloud") {
+            return "Make sure you're signed in to iCloud and Screen Time is turned on in Settings, then tap Enable Screen Time again."
+        }
+
+        return recoveryMessage
     }
 }

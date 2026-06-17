@@ -5,11 +5,11 @@ struct ReflectUnlockView: View {
     let onComplete: () -> Void
 
     @State private var card = SpanishWordEngine.randomCard(avoiding: nil)
+    @State private var choices: [String] = []
     @State private var previousCardID: String?
-    @State private var response = ""
-    @State private var helperMessage = "Type the English meaning. If you do not know it, type 'learn'."
-    @State private var isRevealed = false
-    @FocusState private var isFocused: Bool
+    @State private var selectedChoice: String?
+    @State private var wrongChoices: Set<String> = []
+    @State private var helperMessage = "Tap the English meaning."
 
     var body: some View {
         ScrollView {
@@ -19,7 +19,7 @@ struct ReflectUnlockView: View {
                 UnlockHeader(
                     lock: lock,
                     title: "Learn one Spanish word.",
-                    subtitle: "Translate it to continue. Type 'learn' anytime for help."
+                    subtitle: "Pick the English meaning to continue."
                 )
 
                 VStack(alignment: .leading, spacing: 16) {
@@ -35,48 +35,25 @@ struct ReflectUnlockView: View {
                     .padding(14)
                     .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
 
-                    if isRevealed {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Meaning")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            Text(card.english)
-                                .font(.headline.weight(.medium))
-                                .foregroundStyle(AppTheme.accentDeep)
+                    VStack(spacing: 10) {
+                        ForEach(choices, id: \.self) { choice in
+                            ChoiceButton(
+                                title: choice,
+                                state: choiceState(for: choice)
+                            ) {
+                                select(choice)
+                            }
                         }
-                        .padding(14)
-                        .background(AppTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     }
-
-                    TextField("Type the English meaning", text: $response)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                        .focused($isFocused)
-                        .padding(10)
-                        .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .onSubmit {
-                            submit()
-                        }
 
                     Text(helperMessage)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    if isRevealed {
-                        PrimaryButton(title: "I Learned It") {
-                            onComplete()
-                        }
-                    } else {
-                        PrimaryButton(title: "Check") {
-                            submit()
-                        }
-                    }
-
                     HStack(spacing: 10) {
-                        SecondaryActionButton(title: "Learn", icon: "book.closed") {
-                            response = SpanishWordEngine.learnCommand
-                            submit()
+                        SecondaryActionButton(title: "Reveal", icon: "lightbulb") {
+                            reveal()
                         }
                         SecondaryActionButton(title: "New Word", icon: "arrow.triangle.2.circlepath") {
                             loadNextCard()
@@ -89,48 +66,128 @@ struct ReflectUnlockView: View {
                 Spacer(minLength: 24)
             }
         }
-        .scrollDismissesKeyboard(.interactively)
         .padding(.vertical, 24)
         .onAppear {
-            previousCardID = card.id
-            isFocused = true
-        }
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                isFocused = false
+            if choices.isEmpty {
+                choices = SpanishWordEngine.choices(for: card)
             }
-        )
+            previousCardID = card.id
+        }
     }
 
-    private func submit() {
-        if SpanishWordEngine.isLearnCommand(response) {
-            response = ""
-            isRevealed = true
-            helperMessage = "Great. Read it once, then tap 'I Learned It'."
-            Haptics.softTap()
-            return
+    private func choiceState(for choice: String) -> ChoiceButton.SelectionState {
+        if wrongChoices.contains(choice) {
+            return .wrong
         }
-
-        guard !response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            helperMessage = "Type an answer, or type 'learn'."
-            return
+        if let selectedChoice, selectedChoice == choice {
+            return SpanishWordEngine.isCorrectAnswer(choice, for: card) ? .correct : .wrong
         }
+        if selectedChoice != nil, SpanishWordEngine.isCorrectAnswer(choice, for: card) {
+            return .correct
+        }
+        return .idle
+    }
 
-        if SpanishWordEngine.isCorrectAnswer(response, for: card) {
-            onComplete()
+    private func select(_ choice: String) {
+        guard selectedChoice == nil else { return }
+
+        if SpanishWordEngine.isCorrectAnswer(choice, for: card) {
+            selectedChoice = choice
+            helperMessage = "¡Correcto!"
+            Haptics.success()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                onComplete()
+            }
         } else {
+            wrongChoices.insert(choice)
+            helperMessage = "Not quite. Try another, or tap Reveal."
             Haptics.retry()
-            helperMessage = "Not yet. Try again, or type 'learn' for help."
         }
+    }
+
+    private func reveal() {
+        guard selectedChoice == nil else { return }
+        selectedChoice = card.english
+        helperMessage = "“\(card.spanish)” means “\(card.english).” Tap it to continue."
+        Haptics.softTap()
     }
 
     private func loadNextCard() {
         let next = SpanishWordEngine.randomCard(avoiding: previousCardID)
         previousCardID = next.id
         card = next
-        response = ""
-        isRevealed = false
-        helperMessage = "Type the English meaning. If you do not know it, type 'learn'."
+        choices = SpanishWordEngine.choices(for: next)
+        selectedChoice = nil
+        wrongChoices = []
+        helperMessage = "Tap the English meaning."
+    }
+}
+
+private struct ChoiceButton: View {
+    enum SelectionState {
+        case idle
+        case correct
+        case wrong
+    }
+
+    let title: String
+    let state: SelectionState
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Text(title)
+                    .font(.headline.weight(.medium))
+                    .foregroundStyle(foreground)
+                Spacer()
+                if let icon {
+                    Image(systemName: icon)
+                        .foregroundStyle(foreground)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(borderColor, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var icon: String? {
+        switch state {
+        case .idle: return nil
+        case .correct: return "checkmark.circle.fill"
+        case .wrong: return "xmark.circle.fill"
+        }
+    }
+
+    private var foreground: Color {
+        switch state {
+        case .idle: return .primary
+        case .correct: return AppTheme.accentDeep
+        case .wrong: return .red
+        }
+    }
+
+    private var background: Color {
+        switch state {
+        case .idle: return Color.secondary.opacity(0.10)
+        case .correct: return AppTheme.accent.opacity(0.16)
+        case .wrong: return Color.red.opacity(0.10)
+        }
+    }
+
+    private var borderColor: Color {
+        switch state {
+        case .idle: return Color.white.opacity(0.25)
+        case .correct: return AppTheme.accent.opacity(0.6)
+        case .wrong: return Color.red.opacity(0.4)
+        }
     }
 }
 

@@ -5,10 +5,10 @@ struct SectionTitle: View {
 
     var body: some View {
         Text(title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(AppTheme.accentDeep.opacity(0.7))
             .textCase(.uppercase)
-            .tracking(1.2)
+            .tracking(1.4)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

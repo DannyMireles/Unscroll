@@ -1,6 +1,14 @@
 import Foundation
 
 extension LockStore {
+    /// Curated, tappable shortcuts for the most commonly-locked apps, so people can confirm
+    /// the app with one tap instead of typing. Each name resolves through the launch mapping.
+    static let commonAppNames: [String] = [
+        "TikTok", "Instagram", "X", "YouTube", "Snapchat", "Facebook",
+        "Reddit", "Threads", "WhatsApp", "Messenger", "Discord", "Twitch",
+        "Pinterest", "LinkedIn", "Netflix", "Spotify", "Roblox", "BeReal"
+    ]
+
     /// Normalized name (letters + digits only, lowercased) → URL scheme host (no `://`).
     /// Covers many common apps; unknown names still fall back to using the normalized name as a scheme guess.
     static let popularAppNameToScheme: [String: String] = {
@@ -85,6 +93,9 @@ extension LockStore {
         add("temu", scheme: "temu")
         add("capcut", scheme: "capcut")
         add("threads", scheme: "barcelona")
+        add("airbnb", scheme: "airbnb")
+        add("bereal", scheme: "bereal")
+        add("wechat", "weixin", scheme: "weixin")
         add("yelp", scheme: "yelp")
         add("waze", scheme: "waze")
         add("ebay", scheme: "ebay")
@@ -227,6 +238,146 @@ extension LockStore {
         return m
     }()
 
+    /// Ordered, most-reliable-first launch scheme variants for apps whose canonical
+    /// "open the app" scheme isn't the obvious one. For example TikTok opens via
+    /// `snssdk1233://` (its real registered scheme) — a bare `tiktok://` is unreliable and
+    /// `canOpenURL` returns false for it, which previously made us fall through to the
+    /// website instead of the app. We try every variant in order and launch the first one
+    /// the device confirms is installed.
+    static let popularAppNameToSchemeVariants: [String: [String]] = {
+        var m: [String: [String]] = [:]
+        func add(_ names: String..., schemes: [String]) {
+            for n in names {
+                let k = n.lowercased().filter { $0.isLetter || $0.isNumber }
+                guard !k.isEmpty else { continue }
+                m[k] = schemes
+            }
+        }
+        add("tiktok", "tiktokstudio", schemes: ["snssdk1233", "musically", "tiktok"])
+        add("youtube", schemes: ["youtube", "vnd.youtube"])
+        add("twitter", "x", schemes: ["twitter"])
+        add("facebook", schemes: ["fb"])
+        add("messenger", "facebookmessenger", schemes: ["fb-messenger"])
+        add("instagram", schemes: ["instagram"])
+        add("snapchat", schemes: ["snapchat"])
+        add("reddit", schemes: ["reddit"])
+        add("threads", schemes: ["barcelona"])
+        return m
+    }()
+
+    /// Ordered, most-reliable-first launch scheme variants keyed by bundle ID, used when
+    /// the Shield extension has captured the real bundle identifier.
+    static let popularBundleIDToSchemeVariants: [String: [String]] = [
+        "com.zhiliaoapp.musically": ["snssdk1233", "musically", "tiktok"],
+        "com.zhiliaoapp.musically.go": ["snssdk1233", "musically", "tiktok"],
+        "com.google.ios.youtube": ["youtube", "vnd.youtube"],
+        "com.atebits.Tweetie2": ["twitter"],
+        "com.burbn.instagram": ["instagram"],
+        "com.toyopagroup.picaboo": ["snapchat"],
+        "com.facebook.Facebook": ["fb"],
+        "com.facebook.Messenger": ["fb-messenger"],
+        "com.reddit.Reddit": ["reddit"],
+        "com.burbn.barcelona": ["barcelona"],
+    ]
+
+    /// Ordered launch scheme candidates for a display name (handles the variant apps above,
+    /// otherwise falls back to the single best-guess scheme). Returns an empty array for
+    /// generic placeholder names like "App".
+    static func launchSchemes(forName name: String) -> [String] {
+        guard !isGenericDisplayName(name) else { return [] }
+
+        let normalized = name.lowercased().filter { $0.isLetter || $0.isNumber }
+        if let variants = popularAppNameToSchemeVariants[normalized] {
+            return variants
+        }
+
+        let parts = name.split { !$0.isLetter && !$0.isNumber }
+        if let first = parts.first {
+            let firstKey = String(first).lowercased().filter { $0.isLetter || $0.isNumber }
+            if let variants = popularAppNameToSchemeVariants[firstKey] {
+                return variants
+            }
+        }
+
+        let single = suggestedScheme(for: name)
+        return single.isEmpty ? [] : [single]
+    }
+
+    /// Ordered launch scheme candidates for a captured bundle identifier.
+    static func launchSchemes(forBundleID bundleID: String) -> [String] {
+        if let variants = popularBundleIDToSchemeVariants[bundleID] {
+            return variants
+        }
+        if let mapped = popularBundleIDToNameAndScheme[bundleID] {
+            return [mapped.scheme]
+        }
+        return []
+    }
+
+    /// Normalized app name → website domain, used as a universal-link launch fallback
+    /// when a custom URL scheme is missing or unreliable (e.g. X / Twitter). The
+    /// installed app intercepts these links; otherwise the site opens in Safari.
+    static let popularAppNameToWebDomain: [String: String] = {
+        var m: [String: String] = [:]
+        func add(_ names: String..., domain: String) {
+            for n in names {
+                let k = n.lowercased().filter { $0.isLetter || $0.isNumber }
+                guard !k.isEmpty else { continue }
+                m[k] = domain
+            }
+        }
+        add("tiktok", domain: "tiktok.com")
+        add("instagram", domain: "instagram.com")
+        add("facebook", domain: "facebook.com")
+        add("messenger", "facebookmessenger", domain: "messenger.com")
+        add("whatsapp", domain: "whatsapp.com")
+        add("snapchat", domain: "snapchat.com")
+        add("twitter", "x", domain: "x.com")
+        add("youtube", domain: "youtube.com")
+        add("youtubemusic", domain: "music.youtube.com")
+        add("reddit", domain: "reddit.com")
+        add("twitch", domain: "twitch.tv")
+        add("discord", domain: "discord.com")
+        add("telegram", domain: "telegram.org")
+        add("linkedin", domain: "linkedin.com")
+        add("pinterest", domain: "pinterest.com")
+        add("spotify", domain: "open.spotify.com")
+        add("netflix", domain: "netflix.com")
+        add("hulu", domain: "hulu.com")
+        add("disney", "disneyplus", domain: "disneyplus.com")
+        add("threads", domain: "threads.net")
+        add("amazon", "amazonshopping", domain: "amazon.com")
+        add("ebay", domain: "ebay.com")
+        add("etsy", domain: "etsy.com")
+        add("yelp", domain: "yelp.com")
+        add("tumblr", domain: "tumblr.com")
+        add("vimeo", domain: "vimeo.com")
+        add("imdb", domain: "imdb.com")
+        add("duolingo", domain: "duolingo.com")
+        add("github", domain: "github.com")
+        add("notion", domain: "notion.so")
+        add("chatgpt", domain: "chatgpt.com")
+        add("googlemaps", domain: "maps.google.com")
+        add("googlechrome", "chrome", domain: "google.com")
+        add("gmail", domain: "mail.google.com")
+        return m
+    }()
+
+    static func webDomain(for appName: String) -> String? {
+        let normalized = appName.lowercased().filter { $0.isLetter || $0.isNumber }
+        if let domain = popularAppNameToWebDomain[normalized] {
+            return domain
+        }
+        let parts = appName.split { !$0.isLetter && !$0.isNumber }
+        if let first = parts.first {
+            let firstKey = String(first).lowercased().filter { $0.isLetter || $0.isNumber }
+            if let domain = popularAppNameToWebDomain[firstKey] {
+                return domain
+            }
+        }
+        return nil
+    }
+
     /// Known bundle IDs → (display name hint, URL scheme). Used when a single app token is selected.
     static let popularBundleIDToNameAndScheme: [String: (name: String, scheme: String)] = [
         "com.zhiliaoapp.musically": ("TikTok", "tiktok"),
@@ -287,5 +438,43 @@ extension LockStore {
         "com.notion.id": ("Notion", "notion"),
         "com.openai.chat": ("ChatGPT", "chatgpt"),
         "com.openai.ChatGPT": ("ChatGPT", "chatgpt"),
+        // Additional high-confidence bundle IDs and common variants.
+        "tv.twitch": ("Twitch", "twitch"),
+        "com.hammerandchisel.discord": ("Discord", "discord"),
+        "ph.telegra.Telegraph": ("Telegram", "tg"),
+        "com.pinterest.pinterest": ("Pinterest", "pinterest"),
+        "com.cardify.tinder": ("Tinder", "tinder"),
+        "com.getdropbox.Dropbox": ("Dropbox", "dbapi-1"),
+        "notion.id": ("Notion", "notion"),
+        "com.google.photos": ("Google Photos", "googlephotos"),
+        "com.google.GoogleMobile": ("Google", "google"),
+        "com.google.calendar": ("Google Calendar", "googlecalendar"),
+        "com.tencent.xin": ("WeChat", "weixin"),
+        "org.whispersystems.signal": ("Signal", "sgnl"),
+        "com.einnovation.temu": ("Temu", "temu"),
+        "com.lemon.lvoverseas": ("CapCut", "capcut"),
+        "AlexisBarreyat.BeReal": ("BeReal", "bereal"),
+        "com.skype.skype": ("Skype", "skype"),
+        "com.google.ios.youtubemusic": ("YouTube Music", "youtubemusic"),
+        "com.shazam.Shazam": ("Shazam", "shazam"),
+        "com.soundcloud.TouchApp": ("SoundCloud", "soundcloud"),
+        "com.audible.iphone": ("Audible", "audible"),
+        "com.amazon.Lassen": ("Kindle", "kindle"),
+        "com.google.Translate": ("Google Translate", "googletranslate"),
+        "com.robinhood.release.Robinhood": ("Robinhood", "robinhood"),
+        "com.coinbase.Coinbase": ("Coinbase", "coinbase"),
+        "com.starbucks.mystarbucks": ("Starbucks", "starbucks"),
+        "com.airbnb.app": ("Airbnb", "airbnb"),
+        "com.wbd.stream": ("Max", "hbomax"),
+        "com.venmo.TouchFree": ("Venmo", "venmo"),
+        "com.apple.podcasts": ("Podcasts", "podcasts"),
+        "com.apple.news": ("News", "applenews"),
+        "com.apple.mobileslideshow": ("Photos", "photos-redirect"),
+        "com.apple.AppStore": ("App Store", "itms-apps"),
+        "com.apple.mobilecal": ("Calendar", "calshow"),
+        "com.apple.MobileSMS": ("Messages", "sms"),
+        "com.apple.mobilemail": ("Mail", "message"),
+        "com.apple.Maps": ("Apple Maps", "maps"),
+        "com.apple.iBooks": ("Books", "ibooks"),
     ]
 }

@@ -5,19 +5,29 @@ enum RuntimeStateStore {
 
     static func load() -> UnlockRuntimeState {
         guard let url = AppGroupFile.url(named: fileName) else {
-            return UnlockRuntimeState()
+            return freshState()
         }
         guard let data = try? Data(contentsOf: url) else {
-            return UnlockRuntimeState()
+            return freshState()
         }
 
         do {
             var state = try JSONDecoder.unscroll.decode(UnlockRuntimeState.self, from: data)
+            // Roll the limit state over to today before anything reads it, then persist
+            // the reset so shields from a previous day cannot linger into the new day.
+            let didReset = state.resetForNewDayIfNeeded()
             state.removeExpiredUnlocks()
+            if didReset {
+                save(state)
+            }
             return state
         } catch {
-            return UnlockRuntimeState()
+            return freshState()
         }
+    }
+
+    private static func freshState() -> UnlockRuntimeState {
+        UnlockRuntimeState(dayStart: Calendar.current.startOfDay(for: Date()))
     }
 
     static func save(_ state: UnlockRuntimeState) {

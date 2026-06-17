@@ -5,11 +5,19 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     /// iOS also calls this when `startMonitoring` begins mid-interval. Wiping runtime state here
     /// clears `exceededLockIDs` and breaks shields + notification arming.
     override func intervalDidStart(for activity: DeviceActivityName) {
-        guard activity == .unscrollDaily else { return }
+        guard activity == .unscrollDaily || activity.unscrollUnlockWindowLockID != nil else { return }
         ScreenTimeShieldStore.shieldApplications(for: SharedLockFileStore.load())
     }
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
+        if activity.unscrollUnlockWindowLockID != nil {
+            RuntimeStateStore.update { state in
+                state.removeExpiredUnlocks()
+            }
+            ScreenTimeShieldStore.shieldApplications(for: SharedLockFileStore.load())
+            return
+        }
+
         guard activity == .unscrollDaily else { return }
 
         let now = Date()

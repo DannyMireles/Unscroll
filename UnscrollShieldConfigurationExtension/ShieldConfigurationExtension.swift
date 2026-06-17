@@ -5,11 +5,13 @@ import UIKit
 
 final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     override func configuration(shielding application: Application) -> ShieldConfiguration {
-        makeConfiguration()
+        recordIdentity(application)
+        return makeConfiguration()
     }
 
     override func configuration(shielding application: Application, in category: ActivityCategory) -> ShieldConfiguration {
-        makeConfiguration()
+        recordIdentity(application)
+        return makeConfiguration()
     }
 
     override func configuration(shielding webDomain: WebDomain) -> ShieldConfiguration {
@@ -18,6 +20,23 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 
     override func configuration(shielding webDomain: WebDomain, in category: ActivityCategory) -> ShieldConfiguration {
         makeConfiguration()
+    }
+
+    /// `bundleIdentifier` and `localizedDisplayName` are only readable inside this
+    /// extension. Persist them (keyed by the app's token) so the main app can resolve
+    /// the correct launch scheme automatically, without ever asking the user.
+    private func recordIdentity(_ application: Application) {
+        guard let token = application.token else {
+            NSLog("🧾 Unscroll identity: shield application token was nil for bundle=%@ name=%@",
+                  application.bundleIdentifier ?? "nil",
+                  application.localizedDisplayName ?? "nil")
+            return
+        }
+        AppIdentityStore.record(
+            token: token,
+            bundleID: application.bundleIdentifier,
+            displayName: application.localizedDisplayName
+        )
     }
 
     private func makeConfiguration() -> ShieldConfiguration {

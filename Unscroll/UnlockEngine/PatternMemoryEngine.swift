@@ -1,7 +1,7 @@
 import Foundation
 
 enum PatternMemoryEngine {
-    static let sequenceLength = 3
+    static let sequenceLength = 4
 
     static func generateSequence() -> [Int] {
         var uniqueTiles = Array(0...8)

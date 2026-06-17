@@ -20,12 +20,19 @@
 		225D33F54CC5B45F139B81CB /* UnlockRuntimeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD794F9BFE089C4AB360A727 /* UnlockRuntimeState.swift */; };
 		2331E5AA26594C5E6A1491E4 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBBC7CD630D3E9D4817383A8 /* RootView.swift */; };
 		A1B2C3D4E5F60718293A4B5C /* AppLaunchHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5D /* AppLaunchHelper.swift */; };
+		D1E2F3A4B5C6D7E8F9A0B1C3 /* AppIdentityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9A0B1C2 /* AppIdentityStore.swift */; };
+		D1E2F3A4B5C6D7E8F9A0B1C4 /* AppIdentityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9A0B1C2 /* AppIdentityStore.swift */; };
+		BF0000000000000000000001 /* DeviceActivityReportExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF1000000000000000000001 /* DeviceActivityReportExtension.swift */; };
+		BF0000000000000000000002 /* AppIdentityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9A0B1C2 /* AppIdentityStore.swift */; };
+		BF0000000000000000000003 /* AppIdentityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9A0B1C2 /* AppIdentityStore.swift */; };
+		BF0000000000000000000004 /* AppIdentityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E2F3A4B5C6D7E8F9A0B1C2 /* AppIdentityStore.swift */; };
 		B2C3D4E5F60718293A4B5C6D /* LockStore+PopularApps.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C6E /* LockStore+PopularApps.swift */; };
 		2670B492940EB8BEC4FEA04C /* LockStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E1346026CFFB971D5C9FE37 /* LockStore.swift */; };
 		28C1AE2251DE9FB1F821E331 /* SharedLockFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4F60B4430ACEF601D0944E9 /* SharedLockFileStore.swift */; };
 		2EDB9AF59319ADDEC3844293 /* EmptyLocksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CC87A9838670CA55602B871 /* EmptyLocksView.swift */; };
 		35C949F8769D7553D3A4D430 /* UnscrollMonitorExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C17C364C741E1DAD8B66CF25 /* UnscrollMonitorExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		36608372D14406A4D378F4C4 /* UnscrollShieldConfigurationExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 7806AA1EB99B802F92B513D5 /* UnscrollShieldConfigurationExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		BF0000000000000000000005 /* UnscrollReportExtension.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = BF1000000000000000000004 /* UnscrollReportExtension.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		3957218E1DA702235D1BFA5D /* AddLockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3753D171DB5825DEB2568447 /* AddLockView.swift */; };
 		3DD0A208D130BF64E7E46B9D /* RestrictionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = D45B7C6CC8FF0E243BD0D929 /* RestrictionEngine.swift */; };
 		40FB842773887AE317FC6134 /* MathUnlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB91AAC1E3C7B911F6EE6450 /* MathUnlockView.swift */; };
@@ -101,6 +108,13 @@
 			remoteGlobalIDString = 110D14988AC6F0994205D7F2;
 			remoteInfo = UnscrollShieldActionExtension;
 		};
+		BF2000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C83C28D1EA73A42A2BE3BDEC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = BF4000000000000000000001;
+			remoteInfo = UnscrollReportExtension;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -115,6 +129,17 @@
 				36608372D14406A4D378F4C4 /* UnscrollShieldConfigurationExtension.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BF7000000000000000000001 /* Embed ExtensionKit Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				BF0000000000000000000005 /* UnscrollReportExtension.appex in Embed ExtensionKit Extensions */,
+			);
+			name = "Embed ExtensionKit Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -160,7 +185,12 @@
 		CA0624D80EC7BA135905E3EB /* ShieldActionExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ShieldActionExtension.swift; path = UnscrollShieldActionExtension/ShieldActionExtension.swift; sourceTree = "<group>"; };
 		CBBC7CD630D3E9D4817383A8 /* RootView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RootView.swift; path = Unscroll/App/RootView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F60718293A4B5D /* AppLaunchHelper.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppLaunchHelper.swift; path = Unscroll/App/AppLaunchHelper.swift; sourceTree = "<group>"; };
+		D1E2F3A4B5C6D7E8F9A0B1C2 /* AppIdentityStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppIdentityStore.swift; path = Unscroll/Persistence/AppIdentityStore.swift; sourceTree = "<group>"; };
 		B2C3D4E5F60718293A4B5C6E /* LockStore+PopularApps.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = "LockStore+PopularApps.swift"; path = "Unscroll/Persistence/LockStore+PopularApps.swift"; sourceTree = "<group>"; };
+		BF1000000000000000000001 /* DeviceActivityReportExtension.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DeviceActivityReportExtension.swift; path = UnscrollReportExtension/DeviceActivityReportExtension.swift; sourceTree = "<group>"; };
+		BF1000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; name = Info.plist; path = UnscrollReportExtension/Info.plist; sourceTree = "<group>"; };
+		BF1000000000000000000003 /* UnscrollReportExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; name = UnscrollReportExtension.entitlements; path = UnscrollReportExtension/UnscrollReportExtension.entitlements; sourceTree = "<group>"; };
+		BF1000000000000000000004 /* UnscrollReportExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = UnscrollReportExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D09A09A2426F0380E9603C40 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = OnboardingView.swift; path = Unscroll/Views/Onboarding/OnboardingView.swift; sourceTree = "<group>"; };
 		D2151F9027AFA1F9FD90E10F /* PatternMemoryEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PatternMemoryEngine.swift; path = Unscroll/UnlockEngine/PatternMemoryEngine.swift; sourceTree = "<group>"; };
 		D45B7C6CC8FF0E243BD0D929 /* RestrictionEngine.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = RestrictionEngine.swift; path = Unscroll/ScreenTime/RestrictionEngine.swift; sourceTree = "<group>"; };
@@ -212,6 +242,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BF3000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -230,6 +267,7 @@
 				C17C364C741E1DAD8B66CF25 /* UnscrollMonitorExtension.appex */,
 				123C184E9054E25DA5E9810F /* UnscrollShieldActionExtension.appex */,
 				7806AA1EB99B802F92B513D5 /* UnscrollShieldConfigurationExtension.appex */,
+				BF1000000000000000000004 /* UnscrollReportExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -254,6 +292,7 @@
 				B4B944C942F95761DA582FE2 /* ScreenTimePermissionManager.swift */,
 				BF2FDFDC35A3436206D7A4FD /* AppGroupFile.swift */,
 				AA11BB22CC33DD44EE55FF66 /* ShieldNotifyFlag.swift */,
+				D1E2F3A4B5C6D7E8F9A0B1C2 /* AppIdentityStore.swift */,
 				F985EE81CA12FE39BE2206BA /* Coding.swift */,
 				3E1346026CFFB971D5C9FE37 /* LockStore.swift */,
 				B2C3D4E5F60718293A4B5C6E /* LockStore+PopularApps.swift */,
@@ -291,6 +330,9 @@
 				F227159D5F00E8085833D0AE /* Info.plist */,
 				86455032F25D1F95F1FB0A1E /* ShieldConfigurationExtension.swift */,
 				08F4B9750E7128B6999FF88D /* UnscrollShieldConfigurationExtension.entitlements */,
+				BF1000000000000000000001 /* DeviceActivityReportExtension.swift */,
+				BF1000000000000000000002 /* Info.plist */,
+				BF1000000000000000000003 /* UnscrollReportExtension.entitlements */,
 			);
 			sourceTree = "<group>";
 		};
@@ -330,6 +372,7 @@
 				7034A829108210D8D23E5B81 /* Frameworks */,
 				88B63390F09D3C4313077DB7 /* Resources */,
 				A970596D8FAAD8EFCFFE1631 /* Embed App Extensions */,
+				BF7000000000000000000001 /* Embed ExtensionKit Extensions */,
 			);
 			buildRules = (
 			);
@@ -337,6 +380,7 @@
 				11D5206AA5DC050FE7B236AD /* PBXTargetDependency */,
 				6B5CAB091F264E7112673E7E /* PBXTargetDependency */,
 				2518AEC5CB9C518C20504A5D /* PBXTargetDependency */,
+				BF5000000000000000000001 /* PBXTargetDependency */,
 			);
 			name = Unscroll;
 			productName = Unscroll;
@@ -359,6 +403,23 @@
 			productName = UnscrollShieldConfigurationExtension;
 			productReference = 7806AA1EB99B802F92B513D5 /* UnscrollShieldConfigurationExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		BF4000000000000000000001 /* UnscrollReportExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BF6000000000000000000003 /* Build configuration list for PBXNativeTarget "UnscrollReportExtension" */;
+			buildPhases = (
+				BF3000000000000000000003 /* Sources */,
+				BF3000000000000000000002 /* Frameworks */,
+				BF3000000000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = UnscrollReportExtension;
+			productName = UnscrollReportExtension;
+			productReference = BF1000000000000000000004 /* UnscrollReportExtension.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
 		};
 		E402165DB25BB7691CC7866F /* UnscrollMonitorExtension */ = {
 			isa = PBXNativeTarget;
@@ -403,6 +464,7 @@
 				E402165DB25BB7691CC7866F /* UnscrollMonitorExtension */,
 				110D14988AC6F0994205D7F2 /* UnscrollShieldActionExtension */,
 				B1211A3F2B7B74030B53868D /* UnscrollShieldConfigurationExtension */,
+				BF4000000000000000000001 /* UnscrollReportExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -437,6 +499,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BF3000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -446,6 +515,7 @@
 			files = (
 				C8F26D79EAB74D8592DCA9A4 /* ShieldConfigurationExtension.swift in Sources */,
 				CC33DD44EE55FF6600112233 /* ShieldNotifyFlag.swift in Sources */,
+				D1E2F3A4B5C6D7E8F9A0B1C4 /* AppIdentityStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -461,6 +531,7 @@
 				EB787A52A20F532B7CB32604 /* SharedLockFileStore.swift in Sources */,
 				A0A81DF453DF54EDAD1766CD /* RuntimeStateStore.swift in Sources */,
 				96F8108ABC93449E47C1038D /* Coding.swift in Sources */,
+				BF0000000000000000000004 /* AppIdentityStore.swift in Sources */,
 				82DF9177CD5956C23071382A /* ShieldActionExtension.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -472,6 +543,7 @@
 				D71BA23D7EC859982627E7B0 /* AppConstants.swift in Sources */,
 				2331E5AA26594C5E6A1491E4 /* RootView.swift in Sources */,
 				A1B2C3D4E5F60718293A4B5C /* AppLaunchHelper.swift in Sources */,
+				D1E2F3A4B5C6D7E8F9A0B1C3 /* AppIdentityStore.swift in Sources */,
 				5BDA87ADC80E9F877D5C454D /* UnscrollApp.swift in Sources */,
 				5E6D658582CA47CE7019FF4E /* AppTokenIconView.swift in Sources */,
 				50CCEB0DB3D2686EBB600B8C /* Haptics.swift in Sources */,
@@ -527,6 +599,16 @@
 				EB5FF0A64FAA033809650891 /* ScreenTimeShieldStore.swift in Sources */,
 				545A1A1C8FACAC95F4B43B93 /* DeviceActivityMonitorExtension.swift in Sources */,
 				BB22CC33DD44EE55FF660011 /* ShieldNotifyFlag.swift in Sources */,
+				BF0000000000000000000003 /* AppIdentityStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BF3000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF0000000000000000000001 /* DeviceActivityReportExtension.swift in Sources */,
+				BF0000000000000000000002 /* AppIdentityStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -550,6 +632,12 @@
 			name = UnscrollShieldActionExtension;
 			target = 110D14988AC6F0994205D7F2 /* UnscrollShieldActionExtension */;
 			targetProxy = 86C64A15A4B6B5BA7DD828B9 /* PBXContainerItemProxy */;
+		};
+		BF5000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = UnscrollReportExtension;
+			target = BF4000000000000000000001 /* UnscrollReportExtension */;
+			targetProxy = BF2000000000000000000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -916,6 +1004,63 @@
 			};
 			name = Release;
 		};
+		BF6000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = UnscrollReportExtension/UnscrollReportExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GU6G649D6A;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = UnscrollReportExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.selerim.unscroll.report;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		BF6000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = UnscrollReportExtension/UnscrollReportExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = GU6G649D6A;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = UnscrollReportExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.selerim.unscroll.report;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -960,6 +1105,15 @@
 			buildConfigurations = (
 				72DB718A0866163719335A91 /* Release */,
 				72CDEFFDC2ED59C58C73D540 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BF6000000000000000000003 /* Build configuration list for PBXNativeTarget "UnscrollReportExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BF6000000000000000000002 /* Release */,
+				BF6000000000000000000001 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -34,13 +34,13 @@ enum UnlockMethod: String, Codable, CaseIterable, Identifiable {
     var description: String {
         switch self {
         case .mentalMath:
-            return "Solve one calm arithmetic prompt."
+            return "Solve a quick arithmetic or number-pattern prompt."
         case .patternMemory:
-            return "Repeat a short sequence on a 3x3 grid."
+            return "Watch and repeat a short pattern on a grid."
         case .breathing:
             return "Take three guided breaths."
         case .reflect:
-            return "Learn and answer one Spanish word challenge."
+            return "Pick the meaning of one Spanish word."
         case .random:
             return "Randomly choose any unlock each time."
         }

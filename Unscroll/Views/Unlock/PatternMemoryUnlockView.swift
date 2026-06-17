@@ -102,15 +102,15 @@ struct PatternMemoryUnlockView: View {
     private func playSequence() async {
         isPlaying = true
         userInput = []
-        message = "Watch one clear pattern."
-        try? await Task.sleep(nanoseconds: 800_000_000)
+        message = "Watch the pattern."
+        try? await Task.sleep(nanoseconds: 350_000_000)
 
         for tile in sequence {
             highlightedTile = tile
             Haptics.softTap()
-            try? await Task.sleep(nanoseconds: 900_000_000)
+            try? await Task.sleep(nanoseconds: 480_000_000)
             highlightedTile = nil
-            try? await Task.sleep(nanoseconds: 350_000_000)
+            try? await Task.sleep(nanoseconds: 170_000_000)
         }
 
         message = "Your turn."

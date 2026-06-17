@@ -8,8 +8,49 @@ final class LockStore: ObservableObject {
 
     func load() async {
         locks = SharedLockFileStore.load()
+        reconcileDisplayNames()
     }
 
+    /// Upgrades locks whose name we couldn't read at creation time (e.g. "App")
+    /// using the real identity captured by Screen Time extensions. Runs automatically,
+    /// so the user never has to type anything.
+    func reconcileDisplayNames() {
+        var changed = false
+        for index in locks.indices {
+            let lock = locks[index]
+            guard lock.selection.applicationTokens.count == 1,
+                  let token = lock.selection.applicationTokens.first,
+                  let identity = AppIdentityStore.identity(for: token) else { continue }
+
+            AppIdentityStore.logRoundTripCheck(for: token, source: "lock.reconcile")
+
+            let resolvedName = identity.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let bundleScheme = identity.bundleID.flatMap { Self.launchSchemes(forBundleID: $0).first }
+
+            if Self.isGenericDisplayName(lock.appDisplayName),
+               let resolvedName, !resolvedName.isEmpty {
+                locks[index].appDisplayName = resolvedName
+                changed = true
+            }
+
+            let needsScheme = (locks[index].launchURLScheme ?? "").isEmpty
+                || Self.isGenericDisplayName(lock.appDisplayName)
+            if needsScheme {
+                let nameScheme = resolvedName.map { Self.suggestedScheme(for: $0) } ?? ""
+                let resolvedScheme = !(bundleScheme ?? "").isEmpty ? bundleScheme : (nameScheme.isEmpty ? nil : nameScheme)
+                if let resolvedScheme, resolvedScheme != locks[index].launchURLScheme {
+                    locks[index].launchURLScheme = resolvedScheme
+                    changed = true
+                }
+            }
+        }
+
+        if changed {
+            try? SharedLockFileStore.save(locks)
+        }
+    }
+
+    @discardableResult
     func add(
         selection: FamilyActivitySelection,
         name: String,
@@ -17,7 +58,7 @@ final class LockStore: ObservableObject {
         limitMinutes: Int,
         method: UnlockMethod,
         rewardMode: UnlockRewardMode
-    ) async {
+    ) async -> AppLock {
         let resolvedName = name.trimmingCharacters(in: .whitespaces).isEmpty
             ? Self.displayName(for: selection)
             : name.trimmingCharacters(in: .whitespaces)
@@ -32,6 +73,7 @@ final class LockStore: ObservableObject {
         )
         locks.append(lock)
         await persistAndRefreshScreenTime()
+        return lock
     }
 
     func update(_ lock: AppLock) async {
@@ -56,6 +98,7 @@ final class LockStore: ObservableObject {
             state.exceededLockIDs.remove(lock.id)
             state.temporaryUnlocks.removeValue(forKey: lock.id)
             state.unlockGrantedAt.removeValue(forKey: lock.id)
+            state.incrementalUnlockCounts.removeValue(forKey: lock.id)
             if state.pendingUnlockLockID == lock.id {
                 state.pendingUnlockLockID = nil
                 state.pendingUnlockTriggered = false
@@ -97,6 +140,10 @@ final class LockStore: ObservableObject {
     }
 
     static func suggestedScheme(for appName: String) -> String {
+        // Never derive a launch scheme from an auto-generated placeholder like
+        // "App" or "3 apps" — that produced bogus URLs such as `app://`.
+        guard !isGenericDisplayName(appName) else { return "" }
+
         let normalized = appName.lowercased().filter { $0.isLetter || $0.isNumber }
         if let scheme = popularAppNameToScheme[normalized] {
             return scheme
@@ -111,7 +158,43 @@ final class LockStore: ObservableObject {
         return normalized
     }
 
+    /// True when a name is one of the auto-generated placeholders produced by
+    /// `displayName(for:)` (e.g. "App", "3 apps", "No selection"). These do
+    /// not identify a real app, so they must not be used to build a launch scheme.
+    static func isGenericDisplayName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return true }
+
+        let exactPlaceholders: Set<String> = [
+            "app", "chosen app",
+            "selected app", "selected category", "selected website",
+            "selected apps", "no selection"
+        ]
+        if exactPlaceholders.contains(trimmed) { return true }
+
+        let parts = trimmed.split(separator: " ")
+        if parts.count == 2,
+           Int(parts[0]) != nil,
+           ["app", "apps", "category", "categories", "website", "websites", "item", "items"].contains(String(parts[1])) {
+            return true
+        }
+        return false
+    }
+
     static func suggestedScheme(for selection: FamilyActivitySelection, fallbackName: String) -> String {
+        if selection.applicationTokens.count == 1,
+           let token = selection.applicationTokens.first,
+           let identity = AppIdentityStore.identity(for: token) {
+            if let bundleID = identity.bundleID,
+               let scheme = launchSchemes(forBundleID: bundleID).first {
+                return scheme
+            }
+            if let displayName = identity.displayName,
+               let scheme = launchSchemes(forName: displayName).first {
+                return scheme
+            }
+        }
+
         if let bundleID = inferredBundleID(from: selection),
            let mapped = popularBundleIDToNameAndScheme[bundleID] {
             return mapped.scheme
@@ -121,11 +204,27 @@ final class LockStore: ObservableObject {
 
     /// Returns a human-readable display name for a selection.
     ///
-    /// On iOS 16+, `FamilyActivitySelection.applications` contains `Application` objects
-    /// whose `localizedDisplayName` is populated immediately after the user makes a
-    /// selection via `FamilyActivityPicker`. Use that when available so the name reflects
-    /// the actual app (e.g. "TikTok") rather than a generic placeholder.
+    /// In the main app, Screen Time app names are normally private. Use any identity
+    /// already captured by an entitled extension, then fall back to the token label in
+    /// UI and a generic stored string for persistence.
     static func displayName(for selection: FamilyActivitySelection) -> String {
+        let capturedNames = selection.applicationTokens
+            .compactMap { AppIdentityStore.identity(for: $0)?.displayName }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted()
+
+        if !capturedNames.isEmpty,
+           capturedNames.count == selection.applicationTokens.count,
+           selection.categoryTokens.isEmpty,
+           selection.webDomainTokens.isEmpty {
+            switch capturedNames.count {
+            case 1: return capturedNames[0]
+            case 2: return "\(capturedNames[0]) & \(capturedNames[1])"
+            default: return "\(capturedNames[0]) & \(capturedNames.count - 1) more"
+            }
+        }
+
         let appNames = selection.applications
             .compactMap(\.localizedDisplayName)
             .sorted()
@@ -151,7 +250,7 @@ final class LockStore: ObservableObject {
         guard totalCount > 0 else { return "No selection" }
 
         if categoryCount == 0, webDomainCount == 0 {
-            return appCount == 1 ? "Selected app" : "\(appCount) apps"
+            return appCount == 1 ? "App" : "\(appCount) apps"
         }
 
         if appCount == 0, webDomainCount == 0 {
@@ -187,40 +286,5 @@ final class LockStore: ObservableObject {
             return nil
         }
         return String(tokenDescription[matchRange])
-    }
-
-    // MARK: - Lock form UX (clear generic auto-fill on focus)
-
-    /// True when the lock name is a Screen Time generic label, not a real app title.
-    static func shouldClearLockNameOnFocus(_ name: String) -> Bool {
-        let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.isEmpty { return false }
-
-        let exact: Set<String> = [
-            "Selected app",
-            "Selected category",
-            "Selected website",
-            "No selection",
-        ]
-        if exact.contains(t) { return true }
-
-        let countedSuffixes = ["apps", "categories", "websites", "items"]
-        for suf in countedSuffixes {
-            guard t.hasSuffix(" \(suf)") else { continue }
-            let prefix = String(t.dropLast(suf.count + 1))
-            if prefix.allSatisfy(\.isNumber), !prefix.isEmpty { return true }
-        }
-
-        if t.contains(" & "), t.hasSuffix(" more") { return true }
-
-        return false
-    }
-
-    /// True when the scheme is exactly the auto-suggested value (user can tap to replace without backspacing).
-    static func shouldClearLaunchSchemeOnFocus(_ scheme: String, selection: FamilyActivitySelection, lockName: String) -> Bool {
-        let t = scheme.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.isEmpty { return false }
-        let suggested = suggestedScheme(for: selection, fallbackName: lockName)
-        return t.caseInsensitiveCompare(suggested) == .orderedSame
     }
 }

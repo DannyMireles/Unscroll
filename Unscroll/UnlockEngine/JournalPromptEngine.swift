@@ -200,6 +200,24 @@ enum SpanishWordEngine {
         return card
     }
 
+    /// Returns shuffled English answer choices for a card: the correct meaning plus
+    /// distractors drawn from other cards. Choices are de-duplicated by meaning so
+    /// two options never read the same.
+    static func choices(for card: SpanishWordCard, count: Int = 4) -> [String] {
+        var seen: Set<String> = [normalized(card.english)]
+        var result: [String] = [card.english]
+
+        var pool = cards.shuffled()
+        while result.count < count, let candidate = pool.popLast() {
+            let key = normalized(candidate.english)
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            result.append(candidate.english)
+        }
+
+        return result.shuffled()
+    }
+
     static func isLearnCommand(_ value: String) -> Bool {
         normalized(value) == learnCommand
     }

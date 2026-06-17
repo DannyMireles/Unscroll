@@ -6,74 +6,85 @@ struct LockCard: View {
     let onPause: () -> Void
     let onDelete: () -> Void
     let onOpenApp: () -> Void
+    let onCapturedAppName: (String) -> Void
 
     var body: some View {
-        let rewardText = lock.unlockRewardMode == .incrementalByLimit ? "Incremental time" : "Rest of day"
-
-        VStack(alignment: .leading, spacing: 16) {
-            Button(action: onOpenApp) {
+        HStack(spacing: 14) {
+            Button {
+                Haptics.softTap()
+                onOpenApp()
+            } label: {
                 HStack(spacing: 14) {
                     AppTokenIconView(lock: lock)
 
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
-                            Text(lock.appDisplayName)
-                                .font(.headline.weight(.medium))
-                                .lineLimit(1)
+                            AppTokenTitleView(lock: lock)
+                                .font(.headline.weight(.semibold))
                                 .foregroundStyle(.primary)
 
                             if lock.isPaused {
                                 Text("Paused")
-                                    .font(.caption.weight(.medium))
-                                    .padding(.horizontal, 8)
+                                    .font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 7)
                                     .padding(.vertical, 3)
                                     .background(Color.secondary.opacity(0.16), in: Capsule())
                             }
                         }
 
-                        Text("\(lock.limitLabel) daily - \(lock.unlockMethod.title) - \(rewardText)")
+                        Text(metaLine)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.leading)
+                            .lineLimit(1)
                     }
 
-                    Spacer(minLength: 8)
-
-                    Image(systemName: "arrow.up.right.circle.fill")
-                        .font(.title3)
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(AppTheme.accent.opacity(0.85))
+                    Spacer(minLength: 4)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Open \(lock.appDisplayName)")
 
-            HStack(spacing: 10) {
-                LockActionButton(title: "Edit", systemImage: "slider.horizontal.3", action: onEdit)
-                LockActionButton(title: lock.isPaused ? "Resume" : "Pause", systemImage: lock.isPaused ? "play.fill" : "pause.fill", action: onPause)
-                LockActionButton(title: "Delete", systemImage: "trash", role: .destructive, action: onDelete)
+            Menu {
+                Button {
+                    Haptics.softTap()
+                    onEdit()
+                } label: { Label("Edit", systemImage: "slider.horizontal.3") }
+                Button {
+                    Haptics.softTap()
+                    onPause()
+                } label: {
+                    Label(lock.isPaused ? "Resume" : "Pause", systemImage: lock.isPaused ? "play.fill" : "pause.fill")
+                }
+                Button(role: .destructive) {
+                    Haptics.softTap()
+                    onDelete()
+                } label: { Label("Delete", systemImage: "trash") }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 38, height: 38)
+                    .background(Color.secondary.opacity(0.10), in: Circle())
+            }
+            .simultaneousGesture(TapGesture().onEnded { Haptics.softTap() })
+        }
+        .glassCard(padding: 16)
+        .overlay(alignment: .topLeading) {
+            if lock.selection.applicationTokens.count == 1,
+               lock.selection.categoryTokens.isEmpty,
+               lock.selection.webDomainTokens.isEmpty,
+               let token = lock.selection.applicationTokens.first {
+                ApplicationTokenNameCapture(token: token) { _, name in
+                    onCapturedAppName(name)
+                }
+                .id(token.hashValue)
             }
         }
-        .glassCard()
     }
-}
 
-private struct LockActionButton: View {
-    let title: String
-    let systemImage: String
-    var role: ButtonRole?
-    let action: () -> Void
-
-    var body: some View {
-        Button(role: role, action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.caption.weight(.medium))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 9)
-                .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(role == .destructive ? Color.red : AppTheme.accentDeep)
+    private var metaLine: String {
+        let reward = lock.unlockRewardMode == .incrementalByLimit ? "Incremental" : "Rest of day"
+        return "\(lock.limitLabel) daily · \(lock.unlockMethod.shortTitle) · \(reward)"
     }
 }

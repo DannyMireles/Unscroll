@@ -19,7 +19,7 @@ enum UnlockRewardMode: String, Codable, CaseIterable, Identifiable {
     var description: String {
         switch self {
         case .incrementalByLimit:
-            return "Each completed activity grants more time (up to 30 minutes)."
+            return "Each completed activity adds another usage increment for everything in this lock."
         case .unlockedRestOfDay:
             return "After one activity, this lock stays open until tomorrow."
         }

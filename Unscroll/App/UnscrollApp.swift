@@ -30,6 +30,8 @@ struct UnscrollApp: App {
                     Task {
                         await permissionManager.refreshStatus(reason: "scene active")
                         await RestrictionEngine.shared.reapplyCurrentShields()
+                        await lockStore.load()
+                        unlockCoordinator.refreshStats()
                         unlockCoordinator.consumePendingUnlock()
                     }
                 }

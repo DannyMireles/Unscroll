@@ -1,276 +1,567 @@
 import FamilyControls
+import ManagedSettings
 import SwiftUI
 
 struct AddLockView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var lockStore: LockStore
 
+    /// Called with the newly created lock just before the sheet dismisses, so the home
+    /// screen can show the "lock ready" popup that captures the app's identity.
+    var onCreated: (AppLock) -> Void = { _ in }
+
     @State private var selection = FamilyActivitySelection()
-    @State private var lockName: String = ""
-    /// Tracks the last lock name used for launch-scheme syncing (see `onChange(of: lockName)`).
-    @State private var previousLockNameForScheme: String = ""
-    @State private var launchScheme: String = ""
+    @State private var lockName = ""
+    @State private var capturedAppName: String?
+    @State private var launchScheme = ""
     @State private var isPickerPresented = false
     @State private var hours = 0
     @State private var minutes = 30
     @State private var method: UnlockMethod = .mentalMath
     @State private var rewardMode: UnlockRewardMode = .incrementalByLimit
-    @State private var showAdvancedLaunchOptions = false
 
-    private enum LockFormField: Hashable {
-        case lockName
-        case launchScheme
-    }
+    @State private var step = 0
+    @State private var showConfetti = false
+    @State private var isSaving = false
+    @State private var previewMethod: UnlockMethod?
 
-    @FocusState private var focusedField: LockFormField?
+    private let lastStep = 3
 
-    private var totalMinutes: Int {
-        hours * 60 + minutes
-    }
-
-    private var canSave: Bool {
-        selectionItemCount > 0 && totalMinutes > 0
-    }
-
-    private var selectionItemCount: Int {
-        selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
-    }
+    private var totalMinutes: Int { hours * 60 + minutes }
 
     private var hasSelection: Bool {
-        selectionItemCount > 0
+        selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count > 0
+    }
+
+    private var canSave: Bool { hasSelection && totalMinutes > 0 }
+
+    private var primaryDisabled: Bool {
+        switch step {
+        case 0: return !hasSelection
+        case 1: return totalMinutes <= 0
+        case lastStep: return !canSave || isSaving
+        default: return false
+        }
     }
 
     var body: some View {
         NavigationStack {
             ZStack {
                 AppBackground()
-                ScrollView {
-                    VStack(spacing: 18) {
-                        appPickerSection
-                        nameSection
-                        advancedLaunchSection
-                        limitSection
-                        rewardModeSection
-                        methodSection
+
+                VStack(spacing: 0) {
+                    progressBar
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+
+                    TabView(selection: $step) {
+                        appStep.tag(0)
+                        limitStep.tag(1)
+                        timingStep.tag(2)
+                        methodStep.tag(3)
                     }
-                    .padding(20)
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .animation(.easeInOut(duration: 0.25), value: step)
+
+                    bottomBar
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 12)
+                }
+
+                if showConfetti {
+                    ConfettiView()
+                        .ignoresSafeArea()
+                        .transition(.opacity)
                 }
             }
-            .navigationTitle("Add Lock")
+            .navigationTitle("New Lock")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task {
-                            await lockStore.add(
-                                selection: selection,
-                                name: lockName,
-                                launchURLScheme: launchScheme,
-                                limitMinutes: totalMinutes,
-                                method: method,
-                                rewardMode: rewardMode
-                            )
-                            dismiss()
-                        }
-                    }
-                    .disabled(!canSave)
+                        .disabled(isSaving)
                 }
             }
             .familyActivityPicker(isPresented: $isPickerPresented, selection: $selection)
-            .onChange(of: focusedField) { newValue in
-                guard let new = newValue else { return }
-                switch new {
-                case .lockName:
-                    if LockStore.shouldClearLockNameOnFocus(lockName) {
-                        lockName = ""
-                    }
-                case .launchScheme:
-                    if LockStore.shouldClearLaunchSchemeOnFocus(launchScheme, selection: selection, lockName: lockName) {
-                        launchScheme = ""
-                    }
-                }
-            }
-            // Auto-populate the name whenever the user changes their app selection.
-            // Application.localizedDisplayName is only populated on a fresh picker result,
-            // so we capture it here before the selection is saved to disk.
+            // Pre-fill the name when iOS gives us one; otherwise leave it blank so the
+            // field's placeholder invites it. The launch link is always derived from the
+            // confirmed name — that's the piece that makes tapping the lock open the app.
             .onChange(of: selection) { newSelection in
-                let suggested = LockStore.displayName(for: newSelection)
-                previousLockNameForScheme = suggested
-                lockName = suggested
-                let trimmedScheme = launchScheme.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmedScheme.isEmpty {
-                    // Do not fill e.g. "selectedapp" when Screen Time only gives a generic label —
-                    // that blocks later sync when the user enters the real app name.
-                    if !LockStore.shouldClearLockNameOnFocus(suggested) {
-                        launchScheme = LockStore.suggestedScheme(for: newSelection, fallbackName: suggested)
-                    } else {
-                        launchScheme = ""
-                    }
+                capturedAppName = nil
+                let detected = LockStore.displayName(for: newSelection)
+                if LockStore.isGenericDisplayName(detected) {
+                    lockName = ""
+                    launchScheme = ""
+                } else {
+                    lockName = detected
+                    launchScheme = LockStore.suggestedScheme(for: newSelection, fallbackName: detected)
+                }
+                if hasSelection {
+                    Haptics.success()
                 }
             }
             .onChange(of: lockName) { newName in
-                let oldName = previousLockNameForScheme
-                previousLockNameForScheme = newName
-                let oldSuggested = LockStore.suggestedScheme(for: selection, fallbackName: oldName)
-                let newSuggested = LockStore.suggestedScheme(for: selection, fallbackName: newName)
-                let current = launchScheme.trimmingCharacters(in: .whitespacesAndNewlines)
-                if current.isEmpty || current.caseInsensitiveCompare(oldSuggested) == .orderedSame {
-                    launchScheme = newSuggested
+                let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, !LockStore.isGenericDisplayName(trimmed) else { return }
+                if let scheme = LockStore.launchSchemes(forName: trimmed).first {
+                    launchScheme = scheme
+                }
+            }
+            .sheet(item: $previewMethod) { method in
+                MethodPreviewView(method: method)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+        }
+        .interactiveDismissDisabled(isSaving)
+    }
+
+    // MARK: - Chrome
+
+    private var progressBar: some View {
+        HStack(spacing: 6) {
+            ForEach(0...lastStep, id: \.self) { index in
+                Capsule()
+                    .fill(index <= step ? AppTheme.accent : Color.secondary.opacity(0.18))
+                    .frame(height: 5)
+            }
+        }
+    }
+
+    private var bottomBar: some View {
+        HStack(spacing: 12) {
+            if step > 0 {
+                Button {
+                    Haptics.softTap()
+                    withAnimation(.easeInOut(duration: 0.25)) { step -= 1 }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(AppTheme.accentDeep)
+                        .frame(width: 54, height: 54)
+                        .background(AppTheme.accentSoft, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(isSaving)
+            }
+
+            PrimaryButton(
+                title: step == lastStep ? "Create Lock" : "Continue",
+                isDisabled: primaryDisabled
+            ) {
+                if step == lastStep {
+                    save()
+                } else {
+                    withAnimation(.easeInOut(duration: 0.25)) { step += 1 }
                 }
             }
         }
     }
 
-    private var appPickerSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "App")
-            Button {
-                isPickerPresented = true
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: hasSelection ? "checkmark.circle.fill" : "app.badge")
-                        .font(.title3)
-                        .foregroundStyle(AppTheme.accent)
-                        .frame(width: 32)
+    // MARK: - Steps
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(hasSelection ? LockStore.displayName(for: selection) : "Select apps or categories")
-                            .font(.headline.weight(.medium))
-                        Text(hasSelection ? "\(selectionItemCount) item\(selectionItemCount == 1 ? "" : "s") selected." : "Use Apple's secure Screen Time picker.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+    private var appStep: some View {
+        StepScaffold(
+            title: "Which app?",
+            subtitle: "Pick the app, then confirm its name so tapping the lock opens it for you."
+        ) {
+            VStack(spacing: 12) {
+                Button {
+                    isPickerPresented = true
+                } label: {
+                    AppPickerCard(
+                        selection: selection,
+                        hasSelection: hasSelection,
+                        selectedItemCount: selectedItemCount,
+                        fallbackName: displayNameForCurrentSelection
+                    )
+                }
+                .buttonStyle(.plain)
+
+                if hasSelection, isSingleApplicationSelection {
+                    appNameField
+                }
+            }
+            // Hidden label-reader: when iOS exposes the token's name it auto-fills the
+            // field above; otherwise the field stays editable. Lives outside the picker
+            // button so the button's combined accessibility element can't hide the name.
+            .overlay(alignment: .topLeading) {
+                if isSingleApplicationSelection, let token = selection.applicationTokens.first {
+                    ApplicationTokenNameCapture(token: token) { token, name in
+                        applyCapturedAppName(name, for: token)
                     }
-
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                    .id(token.hashValue)
                 }
-                .glassCard()
-            }
-            .buttonStyle(.plain)
-
-            SelectedAppsSummaryView(selection: selection)
-        }
-    }
-
-    private var nameSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "Lock Name")
-            VStack(alignment: .leading, spacing: 6) {
-                TextField("e.g. TikTok", text: $lockName)
-                    .focused($focusedField, equals: .lockName)
-                    .autocorrectionDisabled()
-                    .glassCard()
-                Text("Use the real app name as it appears on your Home Screen (e.g. TikTok, Instagram). That keeps your list clear and helps Unscroll open the right app after you unlock.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
     }
 
-    private var advancedLaunchSection: some View {
+    private var appNameField: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showAdvancedLaunchOptions.toggle()
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "link.circle.fill")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(AppTheme.accent.opacity(0.9))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Advanced")
-                            .font(.subheadline.weight(.semibold))
-                        Text("Custom URL scheme — only if “Open app” fails")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(showAdvancedLaunchOptions ? 90 : 0))
-                }
-                .padding(.vertical, 4)
-            }
-            .buttonStyle(.plain)
+            Text("Which app is this?")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.secondary)
 
-            if showAdvancedLaunchOptions {
-                VStack(alignment: .leading, spacing: 6) {
-                    TextField("Scheme (no ://)", text: $launchScheme)
-                        .focused($focusedField, equals: .launchScheme)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .glassCard()
-                    Text("Most people never need this. If the app doesn’t open after unlocking, ask a friend or search for the app’s URL scheme, then enter it here.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(LockStore.commonAppNames, id: \.self) { name in
+                        AppNameChip(name: name, isSelected: isSelectedAppName(name)) {
+                            lockName = name
+                        }
+                    }
                 }
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .padding(.horizontal, 2)
+                .padding(.vertical, 1)
             }
+
+            TextField("Or type its name", text: $lockName)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 12)
+                .frame(height: 44)
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            Text(linkHint)
+                .font(.caption)
+                .foregroundStyle(linkResolves ? AppTheme.accent : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .glassCard(padding: 14)
     }
 
-    private var limitSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "Daily Limit")
-            VStack(spacing: 10) {
-                Stepper(value: $hours, in: 0...12) {
-                    HStack {
-                        Text("Hours")
-                        Spacer()
-                        Text("\(hours)")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Stepper(value: $minutes, in: 0...55, step: 5) {
-                    HStack {
-                        Text("Minutes")
-                        Spacer()
-                        Text("\(minutes)")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Text(totalMinutes == 0 ? "Choose at least 1 minute." : "Limit: \(AppLock(selection: selection, appDisplayName: "", dailyLimitMinutes: totalMinutes, unlockMethod: method).limitLabel) each day")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .glassCard()
-        }
+    private func isSelectedAppName(_ name: String) -> Bool {
+        trimmedLockName.caseInsensitiveCompare(name) == .orderedSame
     }
 
-    private var methodSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "Unlock Method")
-            UnlockMethodSelectionGrid(selection: $method)
-        }
+    private var trimmedLockName: String {
+        lockName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var rewardModeSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionTitle(title: "Unlock Timing")
-            VStack(alignment: .leading, spacing: 12) {
-                Picker("Unlock Timing", selection: $rewardMode) {
-                    ForEach(UnlockRewardMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
+    private var linkResolves: Bool {
+        !trimmedLockName.isEmpty && !LockStore.isGenericDisplayName(trimmedLockName)
+    }
 
-                Text(rewardMode.description)
+    private var linkHint: String {
+        guard linkResolves else {
+            return "Tap your app above (or type it) so tapping this lock opens it."
+        }
+        return "Tapping this lock will open \(trimmedLockName)."
+    }
+
+    private var limitStep: some View {
+        StepScaffold(
+            title: "How long each day?",
+            subtitle: "After this much daily use, an unlock challenge appears. Swipe to set it."
+        ) {
+            VStack(spacing: 8) {
+                HStack(spacing: 0) {
+                    Picker("Hours", selection: $hours) {
+                        ForEach(0...12, id: \.self) { Text("\($0) h").tag($0) }
+                    }
+                    .pickerStyle(.wheel)
+                    .frame(maxWidth: .infinity)
+
+                    Picker("Minutes", selection: $minutes) {
+                        ForEach(Array(stride(from: 0, through: 55, by: 5)), id: \.self) { Text("\($0) m").tag($0) }
+                    }
+                    .pickerStyle(.wheel)
+                    .frame(maxWidth: .infinity)
+                }
+                .frame(height: 170)
+
+                Text(totalMinutes > 0 ? "\(limitLabel) of daily use before a challenge" : "Choose at least 1 minute")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            .glassCard()
+            .glassCard(padding: 14)
         }
+    }
+
+    private var timingStep: some View {
+        StepScaffold(
+            title: "After an unlock?",
+            subtitle: "Choose what one completed challenge earns you."
+        ) {
+            VStack(spacing: 12) {
+                ForEach(UnlockRewardMode.allCases) { mode in
+                    BigChoiceCard(
+                        title: mode.title,
+                        subtitle: mode.description,
+                        systemImage: mode == .incrementalByLimit ? "timer" : "sun.max.fill",
+                        isSelected: rewardMode == mode
+                    ) {
+                        rewardMode = mode
+                    }
+                }
+            }
+        }
+    }
+
+    private var methodStep: some View {
+        StepScaffold(
+            title: "Pick your challenge",
+            subtitle: "What you'll complete to earn time back. Tap the eye to preview one."
+        ) {
+            UnlockMethodSelectionGrid(selection: $method) { previewMethod = $0 }
+        }
+    }
+
+    private var limitLabel: String {
+        AppLock(selection: selection, appDisplayName: "", dailyLimitMinutes: totalMinutes, unlockMethod: method).limitLabel
+    }
+
+    private var selectedItemCount: Int {
+        selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count
+    }
+
+    private var isSingleApplicationSelection: Bool {
+        selection.applicationTokens.count == 1
+            && selection.categoryTokens.isEmpty
+            && selection.webDomainTokens.isEmpty
+    }
+
+    private var displayNameForCurrentSelection: String {
+        if let capturedAppName {
+            return capturedAppName
+        }
+
+        let detected = LockStore.displayName(for: selection)
+        if !LockStore.isGenericDisplayName(detected) {
+            return detected
+        }
+
+        return lockName.isEmpty ? detected : lockName
+    }
+
+    // MARK: - Actions
+
+    private func save() {
+        guard !isSaving, canSave else { return }
+        isSaving = true
+        Haptics.celebrationDing()
+        withAnimation(.easeIn(duration: 0.2)) { showConfetti = true }
+
+        let resolvedName = resolvedLockName()
+        let resolvedScheme = LockStore.launchSchemes(forName: resolvedName).first
+            ?? LockStore.normalizeScheme(launchScheme)
+
+        Task {
+            let created = await lockStore.add(
+                selection: selection,
+                name: resolvedName,
+                launchURLScheme: resolvedScheme,
+                limitMinutes: totalMinutes,
+                method: method,
+                rewardMode: rewardMode
+            )
+            try? await Task.sleep(nanoseconds: 1_300_000_000)
+            onCreated(created)
+            dismiss()
+        }
+    }
+
+    private func applyCapturedAppName(_ name: String, for token: ApplicationToken) {
+        guard isSingleApplicationSelection,
+              selection.applicationTokens.contains(token)
+        else { return }
+
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !LockStore.isGenericDisplayName(trimmed) else { return }
+
+        capturedAppName = trimmed
+
+        // Only auto-fill the name field if the user hasn't typed their own name.
+        // Setting lockName triggers onChange(of: lockName), which derives the scheme.
+        let current = lockName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if current.isEmpty || LockStore.isGenericDisplayName(current) {
+            lockName = trimmed
+        }
+
+        NSLog("🔗 Unscroll: captured selected app label '%@'", trimmed)
+    }
+
+    private func resolvedLockName() -> String {
+        let trimmedName = lockName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !LockStore.isGenericDisplayName(trimmedName) {
+            return trimmedName
+        }
+
+        if let capturedAppName,
+           !LockStore.isGenericDisplayName(capturedAppName) {
+            return capturedAppName
+        }
+
+        // Re-resolve from the selection itself (Apple's app metadata + our bundle-ID
+        // mapping). Returns the real name when available, otherwise a generic label
+        // that the background self-heal upgrades later — never requires typing.
+        return LockStore.displayName(for: selection)
+    }
+}
+
+// MARK: - Step building blocks
+
+private struct StepScaffold<Content: View>: View {
+    let title: String
+    let subtitle: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(title)
+                        .font(.system(.title, design: .rounded).weight(.semibold))
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                content
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 24)
+            .padding(.bottom, 24)
+        }
+        .scrollDismissesKeyboard(.interactively)
+    }
+}
+
+/// A tappable app-name chip used to confirm which app a lock is for, without typing.
+struct AppNameChip: View {
+    let name: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.softTap()
+            action()
+        } label: {
+            Text(name)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(isSelected ? AppTheme.accent : AppTheme.accentSoft, in: Capsule())
+                .foregroundStyle(isSelected ? .white : AppTheme.accentDeep)
+                .overlay {
+                    Capsule().stroke(isSelected ? Color.clear : AppTheme.accent.opacity(0.18), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct BigChoiceCard: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            if !isSelected { Haptics.softTap() }
+            action()
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(isSelected ? AppTheme.accent : AppTheme.accentSoft)
+                        .frame(width: 48, height: 48)
+                    Image(systemName: systemImage)
+                        .font(.headline)
+                        .foregroundStyle(isSelected ? .white : AppTheme.accent)
+                        .scaleEffect(isSelected ? 1.12 : 1.0)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 4)
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary.opacity(0.4))
+            }
+            .glassCard(padding: 16)
+            .overlay {
+                RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
+                    .stroke(isSelected ? AppTheme.accent : Color.clear, lineWidth: 2)
+            }
+            .scaleEffect(isSelected ? 1.02 : 1.0)
+            .shadow(color: isSelected ? AppTheme.accent.opacity(0.22) : .clear, radius: 12, x: 0, y: 7)
+        }
+        .buttonStyle(.plain)
+        .animation(.spring(response: 0.34, dampingFraction: 0.58), value: isSelected)
+    }
+}
+
+// MARK: - Shared components (also used by EditLockView)
+
+private struct AppPickerCard: View {
+    let selection: FamilyActivitySelection
+    let hasSelection: Bool
+    let selectedItemCount: Int
+    let fallbackName: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if hasSelection {
+                SelectionTokenIcon(selection: selection)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(AppTheme.accentSoft)
+                        .frame(width: 48, height: 48)
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.medium))
+                        .foregroundStyle(AppTheme.accent)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                if hasSelection {
+                    SelectionTokenTitleView(
+                        applicationTokens: selection.applicationTokens,
+                        categoryTokens: selection.categoryTokens,
+                        webDomainCount: selection.webDomainTokens.count,
+                        selectedItemCount: selectedItemCount,
+                        fallbackName: fallbackName
+                    )
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                    Text("Tap to change")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Choose an app")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Apple Screen Time picker")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(padding: 14)
     }
 }
 
@@ -338,7 +629,7 @@ struct SelectedAppsSummaryView: View {
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
 
                     ForEach(Array(selection.categoryTokens), id: \.self) { token in
@@ -349,7 +640,7 @@ struct SelectedAppsSummaryView: View {
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
 
                     ForEach(Array(selection.webDomainTokens), id: \.self) { token in
@@ -360,7 +651,7 @@ struct SelectedAppsSummaryView: View {
                             .padding(.horizontal, 10)
                             .padding(.vertical, 8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                 }
             }
@@ -371,6 +662,7 @@ struct SelectedAppsSummaryView: View {
 
 struct UnlockMethodSelectionGrid: View {
     @Binding var selection: UnlockMethod
+    var onPreview: ((UnlockMethod) -> Void)? = nil
 
     private let columns = [
         GridItem(.flexible(), spacing: 10),
@@ -381,7 +673,12 @@ struct UnlockMethodSelectionGrid: View {
         VStack(spacing: 10) {
             LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(UnlockMethod.challengeMethods) { option in
-                    UnlockMethodTile(method: option, isSelected: selection == option) {
+                    UnlockMethodTile(
+                        method: option,
+                        isSelected: selection == option,
+                        onPreview: onPreview.map { handler in { handler(option) } }
+                    ) {
+                        if selection != option { Haptics.softTap() }
                         selection = option
                     }
                 }
@@ -420,34 +717,54 @@ struct UnlockMethodSelectionGrid: View {
 private struct UnlockMethodTile: View {
     let method: UnlockMethod
     let isSelected: Bool
+    var onPreview: (() -> Void)? = nil
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
+        ZStack(alignment: .topTrailing) {
+            Button(action: action) {
+                VStack(alignment: .leading, spacing: 10) {
                     Image(systemName: icon)
                         .font(.headline)
                         .foregroundStyle(AppTheme.accent)
-                    Spacer()
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(isSelected ? AppTheme.accent : Color.secondary.opacity(0.5))
+
+                    Text(method.shortTitle)
+                        .font(.headline.weight(.medium))
+                        .lineLimit(1)
+
+                    Text(method.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-
-                Text(method.shortTitle)
-                    .font(.headline.weight(.medium))
-                    .lineLimit(1)
-
-                Text(method.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 116, alignment: .topLeading)
+                .glassCard()
+                .overlay {
+                    RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
+                        .stroke(isSelected ? AppTheme.accent : Color.clear, lineWidth: 2)
+                }
+                .scaleEffect(isSelected ? 1.02 : 1.0)
             }
-            .frame(maxWidth: .infinity, minHeight: 116, alignment: .topLeading)
-            .glassCard()
+            .buttonStyle(.plain)
+            .animation(.spring(response: 0.34, dampingFraction: 0.58), value: isSelected)
+
+            if let onPreview {
+                Button {
+                    Haptics.softTap()
+                    onPreview()
+                } label: {
+                    Image(systemName: "eye")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(AppTheme.accentDeep)
+                        .frame(width: 30, height: 30)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay { Circle().stroke(Color.white.opacity(0.4), lineWidth: 1) }
+                }
+                .buttonStyle(.plain)
+                .padding(10)
+            }
         }
-        .buttonStyle(.plain)
     }
 
     private var icon: String {
@@ -458,5 +775,206 @@ private struct UnlockMethodTile: View {
         case .reflect: return "character.book.closed"
         case .random: return "shuffle"
         }
+    }
+}
+
+// MARK: - Challenge previews
+
+struct MethodPreviewView: View {
+    let method: UnlockMethod
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AppBackground()
+                ScrollView {
+                    VStack(spacing: 20) {
+                        Text(method.description)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 24)
+
+                        preview
+                            .padding(.horizontal, 20)
+
+                        Text("Preview only — a quick look at this challenge.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 24)
+                }
+            }
+            .navigationTitle(method.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        switch method {
+        case .mentalMath: MathPreview()
+        case .patternMemory: PatternPreview()
+        case .breathing: BreathingPreview()
+        case .reflect: SpanishPreview()
+        case .random: RandomPreview()
+        }
+    }
+}
+
+private struct MathPreview: View {
+    @State private var problem = MathChallengeEngine.generate()
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text(problem.prompt)
+                .font(.system(size: 44, weight: .light, design: .rounded))
+                .minimumScaleFactor(0.5)
+                .lineLimit(1)
+                .contentTransition(.numericText())
+            Text("Answer: \(problem.answer)")
+                .font(.headline.weight(.medium))
+                .foregroundStyle(AppTheme.accentDeep)
+        }
+        .frame(maxWidth: .infinity)
+        .glassCard()
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_200_000_000)
+                withAnimation { problem = MathChallengeEngine.generate() }
+            }
+        }
+    }
+}
+
+private struct PatternPreview: View {
+    private let sequence = [0, 4, 8, 5]
+    @State private var highlighted: Int?
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Watch, then repeat the taps")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                ForEach(0..<9, id: \.self) { index in
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(highlighted == index ? AppTheme.accent : Color.secondary.opacity(0.12))
+                        .aspectRatio(1, contentMode: .fit)
+                        .scaleEffect(highlighted == index ? 1.06 : 1.0)
+                        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: highlighted)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .glassCard()
+        .task {
+            while !Task.isCancelled {
+                for tile in sequence {
+                    highlighted = tile
+                    try? await Task.sleep(nanoseconds: 480_000_000)
+                    highlighted = nil
+                    try? await Task.sleep(nanoseconds: 180_000_000)
+                }
+                try? await Task.sleep(nanoseconds: 900_000_000)
+            }
+        }
+    }
+}
+
+private struct BreathingPreview: View {
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ZStack {
+                Circle()
+                    .fill(AppTheme.accent.opacity(0.14))
+                    .frame(width: 160, height: 160)
+                    .scaleEffect(expanded ? 1.0 : 0.6)
+                Circle()
+                    .stroke(AppTheme.accent.opacity(0.35), lineWidth: 1)
+                    .frame(width: 164, height: 164)
+                Text(expanded ? "Inhale" : "Exhale")
+                    .font(.title3.weight(.light))
+            }
+            .animation(.easeInOut(duration: expanded ? 3.6 : 4.4), value: expanded)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .glassCard()
+        .task {
+            while !Task.isCancelled {
+                expanded = true
+                try? await Task.sleep(nanoseconds: 3_600_000_000)
+                expanded = false
+                try? await Task.sleep(nanoseconds: 4_400_000_000)
+            }
+        }
+    }
+}
+
+private struct SpanishPreview: View {
+    @State private var card = SpanishWordEngine.randomCard(avoiding: nil)
+    @State private var choices: [String] = []
+    @State private var revealed = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text(card.spanish)
+                .font(.system(.largeTitle, design: .rounded).weight(.semibold))
+
+            ForEach(choices, id: \.self) { choice in
+                let correct = SpanishWordEngine.isCorrectAnswer(choice, for: card)
+                HStack {
+                    Text(choice)
+                        .font(.headline.weight(.medium))
+                    Spacer()
+                    if revealed && correct {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(AppTheme.accent)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(
+                    (revealed && correct) ? AppTheme.accentSoft : Color.secondary.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .glassCard()
+        .onAppear {
+            if choices.isEmpty { choices = SpanishWordEngine.choices(for: card) }
+        }
+        .task {
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            withAnimation { revealed = true }
+        }
+    }
+}
+
+private struct RandomPreview: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "shuffle")
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(AppTheme.accent)
+            Text("You'll get a different challenge each time — math, a pattern, breathing, or a Spanish word.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .glassCard()
     }
 }

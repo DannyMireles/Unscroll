@@ -37,10 +37,12 @@ struct UnlockHeader: View {
     let subtitle: String
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 12) {
             AppTokenIconView(lock: lock)
+                .scaleEffect(1.1)
+                .padding(.bottom, 2)
             Text(title)
-                .font(.system(.largeTitle, design: .rounded).weight(.light))
+                .font(.system(.title, design: .rounded).weight(.medium))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Text(subtitle)
