@@ -9,6 +9,7 @@ struct ReflectUnlockView: View {
     @State private var previousCardID: String?
     @State private var selectedChoice: String?
     @State private var wrongChoices: Set<String> = []
+    @State private var revealedAnswer = false
     @State private var helperMessage = "Tap the English meaning."
 
     var body: some View {
@@ -76,22 +77,33 @@ struct ReflectUnlockView: View {
     }
 
     private func choiceState(for choice: String) -> ChoiceButton.SelectionState {
+        let isCorrect = SpanishWordEngine.isCorrectAnswer(choice, for: card)
+        // Once revealed (after a miss or "Reveal"), or once they pick correctly, the right
+        // answer is highlighted green so they can see/learn it.
+        if isCorrect, revealedAnswer || selectedChoice == choice {
+            return .correct
+        }
         if wrongChoices.contains(choice) {
             return .wrong
-        }
-        if let selectedChoice, selectedChoice == choice {
-            return SpanishWordEngine.isCorrectAnswer(choice, for: card) ? .correct : .wrong
-        }
-        if selectedChoice != nil, SpanishWordEngine.isCorrectAnswer(choice, for: card) {
-            return .correct
         }
         return .idle
     }
 
     private func select(_ choice: String) {
+        let isCorrect = SpanishWordEngine.isCorrectAnswer(choice, for: card)
+
+        // After the answer has been shown, tapping the highlighted correct choice continues.
+        if revealedAnswer {
+            if isCorrect {
+                Haptics.success()
+                onComplete()
+            }
+            return
+        }
+
         guard selectedChoice == nil else { return }
 
-        if SpanishWordEngine.isCorrectAnswer(choice, for: card) {
+        if isCorrect {
             selectedChoice = choice
             helperMessage = "¡Correcto!"
             Haptics.success()
@@ -99,15 +111,17 @@ struct ReflectUnlockView: View {
                 onComplete()
             }
         } else {
+            // Wrong: mark it, then reveal the right answer so they learn it before continuing.
             wrongChoices.insert(choice)
-            helperMessage = "Not quite. Try another, or tap Reveal."
+            revealedAnswer = true
+            helperMessage = "Not quite — “\(card.spanish)” means “\(card.english).” Tap it to continue."
             Haptics.retry()
         }
     }
 
     private func reveal() {
-        guard selectedChoice == nil else { return }
-        selectedChoice = card.english
+        guard !revealedAnswer, selectedChoice == nil else { return }
+        revealedAnswer = true
         helperMessage = "“\(card.spanish)” means “\(card.english).” Tap it to continue."
         Haptics.softTap()
     }
@@ -119,6 +133,7 @@ struct ReflectUnlockView: View {
         choices = SpanishWordEngine.choices(for: next)
         selectedChoice = nil
         wrongChoices = []
+        revealedAnswer = false
         helperMessage = "Tap the English meaning."
     }
 }

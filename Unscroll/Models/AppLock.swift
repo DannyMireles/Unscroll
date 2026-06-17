@@ -124,4 +124,13 @@ struct AppLock: Identifiable, Codable, Equatable {
     var hasSelection: Bool {
         selectedItemCount > 0
     }
+
+    /// True only when the lock targets exactly one app (no categories, no websites). That's
+    /// the only case where "open the app" is meaningful — a category or a multi-app lock has
+    /// no single app to jump to, so we never offer a deep link for those.
+    var canDeepLink: Bool {
+        selection.applicationTokens.count == 1
+            && selection.categoryTokens.isEmpty
+            && selection.webDomainTokens.isEmpty
+    }
 }

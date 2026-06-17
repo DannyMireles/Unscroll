@@ -11,9 +11,8 @@ struct HomeView: View {
     @State private var isAddingLock = false
     @State private var editingLock: AppLock?
     @State private var showScreenTimeRequiredAlert = false
-    @State private var unavailableAppName: String?
+    @State private var unavailableLock: AppLock?
     @State private var readyLock: AppLock?
-    @State private var readyIsNewLock = false
 
     var body: some View {
         ScrollView {
@@ -40,7 +39,6 @@ struct HomeView: View {
         }
         .sheet(isPresented: $isAddingLock) {
             AddLockView(onCreated: { lock in
-                readyIsNewLock = true
                 readyLock = lock
             })
         }
@@ -51,10 +49,8 @@ struct HomeView: View {
             if let lock = readyLock {
                 LockReadyPopup(
                     lock: lock,
-                    message: readyIsNewLock
-                        ? "Locked and ready. Tap it any time to open the app — and once you pass your daily limit, you'll earn time back right here."
-                        : "Couldn't open it just now. Open it from your Home Screen, or add the app's name in Edit so the lock can launch it.",
-                    buttonTitle: readyIsNewLock ? "Got it" : "OK",
+                    message: readyMessage(for: lock),
+                    buttonTitle: "Got it",
                     onDismiss: { readyLock = nil }
                 )
                 .zIndex(20)
@@ -66,15 +62,22 @@ struct HomeView: View {
             Text("Screen Time access is required before creating locks.")
         }
         .alert(
-            "Couldn't open \(unavailableAppName ?? "the app")",
+            unavailableLock.map { "Couldn't open \(displayNameForAlert($0))" } ?? "Couldn't open the app",
             isPresented: Binding(
-                get: { unavailableAppName != nil },
-                set: { if !$0 { unavailableAppName = nil } }
+                get: { unavailableLock != nil },
+                set: { if !$0 { unavailableLock = nil } }
             )
         ) {
-            Button("OK", role: .cancel) { unavailableAppName = nil }
+            if let lock = unavailableLock, lock.canDeepLink {
+                Button("Edit Lock") {
+                    let target = unavailableLock
+                    unavailableLock = nil
+                    editingLock = target
+                }
+            }
+            Button("OK", role: .cancel) { unavailableLock = nil }
         } message: {
-            Text("Open it from your Home Screen for now. We'll detect it automatically once its limit screen has appeared.")
+            Text(unavailableLock.map(unavailableMessage(for:)) ?? "")
         }
     }
 
@@ -171,8 +174,7 @@ struct HomeView: View {
                     onEdit: { editingLock = lock },
                     onPause: { Task { await lockStore.togglePause(lock) } },
                     onDelete: { Task { await lockStore.delete(lock) } },
-                    onOpenApp: { openOrUnlock(lock) },
-                    onCapturedAppName: { name in applyCapturedAppName(name, for: lock) }
+                    onOpenApp: { openOrUnlock(lock) }
                 )
             }
         }
@@ -205,46 +207,33 @@ struct HomeView: View {
         }
     }
 
-    /// When an app can't open yet (its identity hasn't been captured), show the "ready"
-    /// popup instead of asking the user to type anything. Rendering that popup runs the
-    /// usage report, which captures the identity so the next Open works.
+    /// Tapping "Open" can't launch anything when the lock has no app to link to. Surface an
+    /// honest message — for a single-app lock the user can name it in Edit so it links next
+    /// time; for a category / multi-app lock there's simply no single app to open.
     private func handleOpenUnavailable(for lock: AppLock) {
-        if canRepairLink(for: lock) {
-            readyIsNewLock = false
-            readyLock = lock
-        } else {
-            unavailableAppName = displayNameForAlert(lock)
-        }
-    }
-
-    private func canRepairLink(for lock: AppLock) -> Bool {
-        lock.selection.applicationTokens.count == 1
-            && lock.selection.categoryTokens.isEmpty
-            && lock.selection.webDomainTokens.isEmpty
+        unavailableLock = lock
     }
 
     private func displayNameForAlert(_ lock: AppLock) -> String {
         LockStore.isGenericDisplayName(lock.appDisplayName) ? "the app" : lock.appDisplayName
     }
 
-    private func applyCapturedAppName(_ name: String, for lock: AppLock) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !LockStore.isGenericDisplayName(trimmed) else { return }
-
-        Task {
-            var updated = lockStore.locks.first(where: { $0.id == lock.id }) ?? lock
-            let resolvedScheme = LockStore.launchSchemes(forName: trimmed).first
-                ?? LockStore.normalizeScheme(updated.launchURLScheme)
-
-            guard updated.appDisplayName != trimmed || updated.launchURLScheme != resolvedScheme else {
-                return
-            }
-
-            updated.appDisplayName = trimmed
-            updated.launchURLScheme = resolvedScheme
-            NSLog("🔗 Unscroll: self-healed app label '%@' scheme=%@", trimmed, resolvedScheme ?? "")
-            await lockStore.update(updated)
+    private func unavailableMessage(for lock: AppLock) -> String {
+        if lock.canDeepLink {
+            return "Open it from your Home Screen. To open it in one tap from here, tap Edit Lock and choose which app this is."
         }
+        return "This lock covers more than one app, so there's no single app to jump to — open what you need from your Home Screen."
+    }
+
+    /// The post-creation confirmation. Honest about whether this lock can deep-link.
+    private func readyMessage(for lock: AppLock) -> String {
+        if lock.canDeepLink, !LockStore.isGenericDisplayName(lock.appDisplayName) {
+            return "Locked and ready. Tap it any time to open \(lock.appDisplayName) — and once you pass your daily limit, you'll earn your time back right here."
+        }
+        if lock.canDeepLink {
+            return "Locked and ready. Add the app's name in Edit to open it in one tap — and once you pass your daily limit, you'll earn your time back right here."
+        }
+        return "Locked and ready. Once you pass your daily limit, complete a quick activity right here to earn your time back."
     }
 }
 

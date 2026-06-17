@@ -10,5 +10,9 @@
 	<array>
 		<string>group.com.selerim.unscroll</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.selerim.unscroll.keychain</string>
+	</array>
 </dict>
 </plist>

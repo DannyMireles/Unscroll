@@ -8,7 +8,6 @@ struct EditLockView: View {
 
     @State private var draft: AppLock
     @State private var lockName: String
-    @State private var capturedAppName: String?
     @State private var isPickerPresented = false
     @State private var hours: Int
     @State private var minutes: Int
@@ -68,7 +67,6 @@ struct EditLockView: View {
             // Picking a new app pre-fills the name when iOS exposes one; the launch link
             // is derived from the confirmed name (that's what makes the lock open the app).
             .onChange(of: draft.selection) { newSelection in
-                capturedAppName = nil
                 let detected = LockStore.displayName(for: newSelection)
                 lockName = LockStore.isGenericDisplayName(detected) ? "" : detected
                 draft.launchURLScheme = LockStore.isGenericDisplayName(detected)
@@ -116,73 +114,15 @@ struct EditLockView: View {
                 .glassCard()
             }
             .buttonStyle(.plain)
-            .overlay(alignment: .topLeading) {
-                if isSingleApplicationSelection, let token = draft.selection.applicationTokens.first {
-                    ApplicationTokenNameCapture(token: token) { token, name in
-                        applyCapturedAppName(name, for: token)
-                    }
-                    .id(token.hashValue)
-                }
-            }
 
             if draft.selectedItemCount > 1 {
                 SelectedAppsSummaryView(selection: draft.selection)
             }
 
             if isSingleApplicationSelection {
-                appNameField
+                AppNamePicker(name: $lockName)
             }
         }
-    }
-
-    private var appNameField: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Which app is this?")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(LockStore.commonAppNames, id: \.self) { name in
-                        AppNameChip(name: name, isSelected: trimmedLockName.caseInsensitiveCompare(name) == .orderedSame) {
-                            lockName = name
-                        }
-                    }
-                }
-                .padding(.horizontal, 2)
-                .padding(.vertical, 1)
-            }
-
-            TextField("Or type its name", text: $lockName)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-                .submitLabel(.done)
-                .font(.subheadline.weight(.medium))
-                .padding(.horizontal, 12)
-                .frame(height: 44)
-                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            Text(linkHint)
-                .font(.caption)
-                .foregroundStyle(linkResolves ? AppTheme.accent : .secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .glassCard(padding: 14)
-    }
-
-    private var trimmedLockName: String {
-        lockName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var linkResolves: Bool {
-        !trimmedLockName.isEmpty && !LockStore.isGenericDisplayName(trimmedLockName)
-    }
-
-    private var linkHint: String {
-        guard linkResolves else {
-            return "Tap your app above (or type it) so tapping this lock opens it."
-        }
-        return "Tapping this lock will open \(trimmedLockName)."
     }
 
     private var limitSection: some View {
@@ -250,38 +190,12 @@ struct EditLockView: View {
     }
 
     private var displayNameForCurrentSelection: String {
-        if let capturedAppName {
-            return capturedAppName
-        }
-
         let detected = LockStore.displayName(for: draft.selection)
         if !LockStore.isGenericDisplayName(detected) {
             return detected
         }
 
         return lockName
-    }
-
-    private func applyCapturedAppName(_ name: String, for token: ApplicationToken) {
-        guard isSingleApplicationSelection,
-              draft.selection.applicationTokens.contains(token)
-        else { return }
-
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !LockStore.isGenericDisplayName(trimmed) else { return }
-
-        capturedAppName = trimmed
-
-        // Silently self-heal the draft's name + launch link when ours is still generic.
-        if LockStore.isGenericDisplayName(lockName) {
-            lockName = trimmed
-            draft.appDisplayName = trimmed
-            if let scheme = LockStore.launchSchemes(forName: trimmed).first {
-                draft.launchURLScheme = scheme
-            }
-        }
-
-        NSLog("🔗 Unscroll: captured edited app label '%@'", trimmed)
     }
 
     private func save() {
@@ -311,11 +225,6 @@ struct EditLockView: View {
         let trimmedName = lockName.trimmingCharacters(in: .whitespacesAndNewlines)
         if !LockStore.isGenericDisplayName(trimmedName) {
             return trimmedName
-        }
-
-        if let capturedAppName,
-           !LockStore.isGenericDisplayName(capturedAppName) {
-            return capturedAppName
         }
 
         // Re-resolve from the selection (Apple metadata + bundle-ID mapping).

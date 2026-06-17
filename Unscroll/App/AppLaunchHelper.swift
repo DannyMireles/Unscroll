@@ -6,59 +6,29 @@ import UIKit
 enum AppLaunchHelper {
     private static let log = Logger(subsystem: "com.selerim.unscroll", category: "AppLaunch")
 
-    /// Opens the app associated with a lock, fully automatically.
+    /// Opens the app associated with a lock.
     ///
-    /// Resolution order:
-    /// 1. The real bundle identifier / name captured by the Shield extension (most
-    ///    reliable — this is the only place iOS exposes that information).
-    /// 2. The lock's stored launch scheme / display name as a fallback.
+    /// Resolution order (built in `launchURLCandidates`):
+    /// 1. The lock's stored launch scheme — derived from the app name the user confirmed
+    ///    in the picker (iOS never hands the selected app's identity to the main app).
+    /// 2. Launch-scheme variants for that confirmed display name.
+    /// 3. A web universal link as a last resort (opens the installed app via Associated
+    ///    Domains, otherwise the website).
     ///
-    /// Every custom-scheme candidate is actually attempted via `UIApplication.open`
-    /// (which launches an installed app even when the scheme isn't declared), and the
-    /// schemes the system confirms are installed are tried first. The web link is the
-    /// last resort. If absolutely nothing opens, `onUnavailable` is called.
+    /// Every custom-scheme candidate is actually attempted via `UIApplication.open` (which
+    /// launches an installed app even when the scheme isn't declared); schemes the system
+    /// confirms are installed are tried first. If nothing opens — or the lock has no single
+    /// app to link to — `onUnavailable` is called.
     @MainActor
     static func openTargetApp(for lock: AppLock, onUnavailable: (() -> Void)? = nil) {
-        NotificationCenter.default.post(name: .unscrollRefreshIdentityReport, object: nil)
-        openTargetApp(for: lock, resolveAttempt: 0, onUnavailable: onUnavailable)
-    }
-
-    @MainActor
-    private static func openTargetApp(
-        for lock: AppLock,
-        resolveAttempt: Int,
-        onUnavailable: (() -> Void)?
-    ) {
         let candidates = launchURLCandidates(for: lock)
         let summary = candidates.map(\.absoluteString).joined(separator: ", ")
         let displayName = resolvedDisplayName(for: lock)
-        log.info("openTargetApp '\(displayName, privacy: .public)' attempt=\(resolveAttempt, privacy: .public) stored=\(lock.launchURLScheme ?? "nil", privacy: .public) candidates=[\(summary, privacy: .public)]")
-        NSLog("🔗 Unscroll: open '%@' attempt=%d candidates=[%@]", displayName, resolveAttempt, summary)
+        log.info("openTargetApp '\(displayName, privacy: .public)' stored=\(lock.launchURLScheme ?? "nil", privacy: .public) candidates=[\(summary, privacy: .public)]")
+        NSLog("🔗 Unscroll: open '%@' candidates=[%@]", displayName, summary)
 
         guard !candidates.isEmpty else {
-            logIdentityState(for: lock, source: "launch.noCandidates.\(resolveAttempt)")
-
-            if needsUserProvidedLinkName(for: lock) {
-                NSLog("🔗 Unscroll: no launch candidates for unresolved app token; requesting app name")
-                onUnavailable?()
-                return
-            }
-
-            if shouldRetryIdentityResolution(for: lock, attempt: resolveAttempt) {
-                let delay = retryDelay(for: resolveAttempt)
-                NSLog("🔗 Unscroll: no launch candidates for '%@'; retrying identity capture in %.1fs", displayName, delay)
-                NotificationCenter.default.post(name: .unscrollRefreshIdentityReport, object: nil)
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    openTargetApp(
-                        for: lock,
-                        resolveAttempt: resolveAttempt + 1,
-                        onUnavailable: onUnavailable
-                    )
-                }
-                return
-            }
-
-            NSLog("🔗 Unscroll: no launch candidates for '%@'", displayName)
+            NSLog("🔗 Unscroll: no launch candidates for '%@' — opening unavailable", displayName)
             onUnavailable?()
             return
         }
@@ -66,40 +36,6 @@ enum AppLaunchHelper {
         // A short delay lets ManagedSettings drop the shield before we open the app.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             attemptOpen(prioritized(candidates), onUnavailable: onUnavailable)
-        }
-    }
-
-    private static func shouldRetryIdentityResolution(for lock: AppLock, attempt: Int) -> Bool {
-        guard attempt < 3, !lock.selection.applicationTokens.isEmpty else { return false }
-        return lock.selection.applicationTokens.contains { AppIdentityStore.identity(for: $0) == nil }
-    }
-
-    @MainActor
-    private static func needsUserProvidedLinkName(for lock: AppLock) -> Bool {
-        lock.selection.applicationTokens.count == 1
-            && lock.selection.categoryTokens.isEmpty
-            && lock.selection.webDomainTokens.isEmpty
-            && LockStore.isGenericDisplayName(lock.appDisplayName)
-            && LockStore.normalizeScheme(lock.launchURLScheme) == nil
-    }
-
-    private static func retryDelay(for attempt: Int) -> TimeInterval {
-        switch attempt {
-        case 0: return 0.8
-        case 1: return 1.5
-        default: return 2.5
-        }
-    }
-
-    private static func logIdentityState(for lock: AppLock, source: String) {
-        NSLog(
-            "🔗 Unscroll: identity state [%@] appTokens=%d storedRecords=%d",
-            source,
-            lock.selection.applicationTokens.count,
-            AppIdentityStore.recordCount()
-        )
-        for token in lock.selection.applicationTokens {
-            AppIdentityStore.logRoundTripCheck(for: token, source: source)
         }
     }
 

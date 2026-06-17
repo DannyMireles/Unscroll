@@ -1,5 +1,6 @@
 import Foundation
 import ManagedSettings
+import Security
 
 /// The real identity of a Screen Time–selected app. `bundleIdentifier` and
 /// `localizedDisplayName` are only readable inside entitled Screen Time extensions,
@@ -23,6 +24,12 @@ enum AppIdentityStore {
     private static let appGroup = "group.com.selerim.unscroll"
     private static let recordsKey = "app-identity-records-v2"
     private static let fileName = "app-identities.json"
+
+    // Shared keychain — reachable across the App/Shield sandbox via securityd, a different
+    // daemon than the filesystem/cfprefsd paths that the UI-extension sandbox denies.
+    private static let keychainAccessGroup = "GU6G649D6A.com.selerim.unscroll.keychain"
+    private static let keychainService = "com.selerim.unscroll.appidentities"
+    private static let keychainAccount = "records"
 
     private struct StoredIdentityRecord: Codable, Equatable {
         var tokenData: Data
@@ -124,7 +131,13 @@ enum AppIdentityStore {
             }
         }
 
-        // Primary: UserDefaults (works across the UI-extension sandbox boundary).
+        // Primary: shared keychain (the path we expect the Shield sandbox can actually write).
+        if let data = keychainLoad(),
+           let decoded = try? JSONDecoder().decode([StoredIdentityRecord].self, from: data) {
+            merge(decoded)
+        }
+
+        // Secondary: UserDefaults.
         if let data = defaults?.data(forKey: recordsKey),
            let decoded = try? JSONDecoder().decode([StoredIdentityRecord].self, from: data) {
             merge(decoded)
@@ -147,18 +160,57 @@ enum AppIdentityStore {
             return
         }
 
+        // Primary: shared keychain (securityd) — expected to work in the Shield sandbox.
+        let keychainStatus = keychainSave(data)
+        NSLog("🧾 Unscroll identity: keychain save status=%d for %d record(s)", Int(keychainStatus), records.count)
+
+        // Secondary: UserDefaults.
         if let defaults {
             defaults.set(data, forKey: recordsKey)
-            NSLog("🧾 Unscroll identity: saved %d record(s) via UserDefaults(%@)", records.count, appGroup)
-        } else {
-            NSLog("🧾 Unscroll identity: App Group UserDefaults unavailable for %@", appGroup)
         }
 
-        // Best-effort: also write the file. Succeeds in the main app / Monitor / ShieldAction
-        // sandboxes; silently denied in UI-extension sandboxes (where UserDefaults is the path).
+        // Best-effort: also write the file (works in main app / Monitor / ShieldAction).
         if let url = fileURL {
             try? data.write(to: url, options: [.atomic])
         }
+    }
+
+    // MARK: - Keychain
+
+    private static func keychainBaseQuery(account: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: account,
+            kSecAttrAccessGroup as String: keychainAccessGroup
+        ]
+    }
+
+    private static func keychainLoad(account: String = keychainAccount) -> Data? {
+        var query = keychainBaseQuery(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecSuccess { return result as? Data }
+        return nil
+    }
+
+    @discardableResult
+    private static func keychainSave(_ data: Data, account: String = keychainAccount) -> OSStatus {
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+        let updateStatus = SecItemUpdate(keychainBaseQuery(account: account) as CFDictionary, attributes as CFDictionary)
+        if updateStatus == errSecItemNotFound {
+            var addQuery = keychainBaseQuery(account: account)
+            addQuery[kSecValueData as String] = data
+            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+            return SecItemAdd(addQuery as CFDictionary, nil)
+        }
+        return updateStatus
     }
 
     private static func encodedToken(_ token: ApplicationToken) -> Data? {

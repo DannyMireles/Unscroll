@@ -6,7 +6,6 @@ struct LockCard: View {
     let onPause: () -> Void
     let onDelete: () -> Void
     let onOpenApp: () -> Void
-    let onCapturedAppName: (String) -> Void
 
     var body: some View {
         HStack(spacing: 14) {
@@ -70,17 +69,6 @@ struct LockCard: View {
             .simultaneousGesture(TapGesture().onEnded { Haptics.softTap() })
         }
         .glassCard(padding: 16)
-        .overlay(alignment: .topLeading) {
-            if lock.selection.applicationTokens.count == 1,
-               lock.selection.categoryTokens.isEmpty,
-               lock.selection.webDomainTokens.isEmpty,
-               let token = lock.selection.applicationTokens.first {
-                ApplicationTokenNameCapture(token: token) { _, name in
-                    onCapturedAppName(name)
-                }
-                .id(token.hashValue)
-            }
-        }
     }
 
     private var metaLine: String {

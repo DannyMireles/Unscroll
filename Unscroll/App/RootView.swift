@@ -12,7 +12,7 @@ struct RootView: View {
     @State private var showSuccessAlert = false
     @State private var grantedMinutes = 0
     @State private var completedLock: AppLock?
-    @State private var unavailableAppName: String?
+    @State private var unavailableLock: AppLock?
 
     private var preferredScheme: ColorScheme? {
         ThemePreference(rawValue: themePreference)?.colorScheme
@@ -51,15 +51,15 @@ struct RootView: View {
         }
         .preferredColorScheme(preferredScheme)
         .alert(
-            "Couldn't open \(unavailableAppName ?? "the app")",
+            unavailableLock.map { "Couldn't open \(displayNameForAlert($0))" } ?? "Couldn't open the app",
             isPresented: Binding(
-                get: { unavailableAppName != nil },
-                set: { if !$0 { unavailableAppName = nil } }
+                get: { unavailableLock != nil },
+                set: { if !$0 { unavailableLock = nil } }
             )
         ) {
-            Button("OK", role: .cancel) { unavailableAppName = nil }
+            Button("OK", role: .cancel) { unavailableLock = nil }
         } message: {
-            Text("You're all set — just open it from your Home Screen. We'll detect it automatically next time.")
+            Text("You're all set — just open it from your Home Screen. To open it in one tap next time, set the app's name in Edit.")
         }
         .task {
             await Task.yield()
@@ -106,7 +106,7 @@ struct RootView: View {
                     }
 
                     HStack(spacing: 10) {
-                        if let lock = completedLock {
+                        if let lock = completedLock, lock.canDeepLink {
                             openAppButton(for: lock)
                         }
 
@@ -143,7 +143,7 @@ struct RootView: View {
     }
 
     private func handleOpenUnavailable(for lock: AppLock) {
-        unavailableAppName = displayNameForAlert(lock)
+        unavailableLock = lock
     }
 
     private func displayNameForAlert(_ lock: AppLock) -> String {
@@ -335,10 +335,9 @@ extension View {
     }
 }
 
-/// A clean confirmation shown after a lock is created, and when an app can't be opened yet
-/// (before its first limit). It shows the app's real icon + name and a short note. Opening
-/// the specific app only becomes possible once the Shield has captured its identity — the
-/// first time you go past your limit — so this popup never asks for any input.
+/// A clean confirmation shown after a lock is created. It shows the app's real icon + name
+/// (rendered from the token by `Label`) and a short note tailored to whether the lock can
+/// deep-link to a single app.
 struct LockReadyPopup: View {
     let lock: AppLock
     var message: String
@@ -354,23 +353,28 @@ struct LockReadyPopup: View {
                     AppTokenIconView(lock: lock)
                         .scaleEffect(1.2)
                         .padding(.top, 4)
+                        .frame(maxWidth: .infinity)
 
                     AppTokenTitleView(lock: lock)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(.primary)
-                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .frame(maxWidth: .infinity, alignment: .center)
 
                     Text(message)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
                         .padding(.horizontal, 4)
 
                     ModalPrimaryButton(title: buttonTitle) {
                         onDismiss()
                     }
                 }
+                .frame(maxWidth: .infinity)
             }
         }
     }

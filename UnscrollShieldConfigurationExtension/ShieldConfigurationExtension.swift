@@ -23,15 +23,13 @@ final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     }
 
     /// `bundleIdentifier` and `localizedDisplayName` are only readable inside this
-    /// extension. Persist them (keyed by the app's token) so the main app can resolve
-    /// the correct launch scheme automatically, without ever asking the user.
+    /// extension — but it runs in a sandbox that's denied every shared store (App Group
+    /// files, cfprefs, and even the keychain), so the main app can't read what we persist
+    /// here on iOS 26. This is left as a quiet best-effort in case a future OS lifts that
+    /// restriction; the app's open flow doesn't depend on it (it uses the name the user
+    /// confirms in the picker).
     private func recordIdentity(_ application: Application) {
-        guard let token = application.token else {
-            NSLog("🧾 Unscroll identity: shield application token was nil for bundle=%@ name=%@",
-                  application.bundleIdentifier ?? "nil",
-                  application.localizedDisplayName ?? "nil")
-            return
-        }
+        guard let token = application.token else { return }
         AppIdentityStore.record(
             token: token,
             bundleID: application.bundleIdentifier,

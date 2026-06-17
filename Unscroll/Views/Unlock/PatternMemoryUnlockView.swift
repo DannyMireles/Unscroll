@@ -86,9 +86,9 @@ struct PatternMemoryUnlockView: View {
 
         guard PatternMemoryEngine.isCorrect(prefix: userInput, sequence: sequence) else {
             Haptics.retry()
-            message = "Not quite. Same pattern, one more try."
             userInput = []
-            Task { await playSequence() }
+            // Re-show the correct pattern so they can see the right order before retrying.
+            Task { await playSequence(intro: "Not quite — watch the correct pattern.") }
             return
         }
 
@@ -99,10 +99,10 @@ struct PatternMemoryUnlockView: View {
         }
     }
 
-    private func playSequence() async {
+    private func playSequence(intro: String = "Watch the pattern.") async {
         isPlaying = true
         userInput = []
-        message = "Watch the pattern."
+        message = intro
         try? await Task.sleep(nanoseconds: 350_000_000)
 
         for tile in sequence {

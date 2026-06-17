@@ -12,7 +12,6 @@ struct AddLockView: View {
 
     @State private var selection = FamilyActivitySelection()
     @State private var lockName = ""
-    @State private var capturedAppName: String?
     @State private var launchScheme = ""
     @State private var isPickerPresented = false
     @State private var hours = 0
@@ -87,7 +86,6 @@ struct AddLockView: View {
             // field's placeholder invites it. The launch link is always derived from the
             // confirmed name — that's the piece that makes tapping the lock open the app.
             .onChange(of: selection) { newSelection in
-                capturedAppName = nil
                 let detected = LockStore.displayName(for: newSelection)
                 if LockStore.isGenericDisplayName(detected) {
                     lockName = ""
@@ -163,7 +161,7 @@ struct AddLockView: View {
     private var appStep: some View {
         StepScaffold(
             title: "Which app?",
-            subtitle: "Pick the app, then confirm its name so tapping the lock opens it for you."
+            subtitle: "Pick what to lock. For a single app, confirm which one so tapping the lock opens it for you."
         ) {
             VStack(spacing: 12) {
                 Button {
@@ -178,76 +176,15 @@ struct AddLockView: View {
                 }
                 .buttonStyle(.plain)
 
-                if hasSelection, isSingleApplicationSelection {
-                    appNameField
-                }
-            }
-            // Hidden label-reader: when iOS exposes the token's name it auto-fills the
-            // field above; otherwise the field stays editable. Lives outside the picker
-            // button so the button's combined accessibility element can't hide the name.
-            .overlay(alignment: .topLeading) {
-                if isSingleApplicationSelection, let token = selection.applicationTokens.first {
-                    ApplicationTokenNameCapture(token: token) { token, name in
-                        applyCapturedAppName(name, for: token)
-                    }
-                    .id(token.hashValue)
-                }
-            }
-        }
-    }
-
-    private var appNameField: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Which app is this?")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(LockStore.commonAppNames, id: \.self) { name in
-                        AppNameChip(name: name, isSelected: isSelectedAppName(name)) {
-                            lockName = name
-                        }
+                if hasSelection {
+                    if isSingleApplicationSelection {
+                        AppNamePicker(name: $lockName)
+                    } else {
+                        MultiSelectionNote()
                     }
                 }
-                .padding(.horizontal, 2)
-                .padding(.vertical, 1)
             }
-
-            TextField("Or type its name", text: $lockName)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
-                .submitLabel(.done)
-                .font(.subheadline.weight(.medium))
-                .padding(.horizontal, 12)
-                .frame(height: 44)
-                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            Text(linkHint)
-                .font(.caption)
-                .foregroundStyle(linkResolves ? AppTheme.accent : .secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
-        .glassCard(padding: 14)
-    }
-
-    private func isSelectedAppName(_ name: String) -> Bool {
-        trimmedLockName.caseInsensitiveCompare(name) == .orderedSame
-    }
-
-    private var trimmedLockName: String {
-        lockName.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var linkResolves: Bool {
-        !trimmedLockName.isEmpty && !LockStore.isGenericDisplayName(trimmedLockName)
-    }
-
-    private var linkHint: String {
-        guard linkResolves else {
-            return "Tap your app above (or type it) so tapping this lock opens it."
-        }
-        return "Tapping this lock will open \(trimmedLockName)."
     }
 
     private var limitStep: some View {
@@ -323,10 +260,6 @@ struct AddLockView: View {
     }
 
     private var displayNameForCurrentSelection: String {
-        if let capturedAppName {
-            return capturedAppName
-        }
-
         let detected = LockStore.displayName(for: selection)
         if !LockStore.isGenericDisplayName(detected) {
             return detected
@@ -362,40 +295,15 @@ struct AddLockView: View {
         }
     }
 
-    private func applyCapturedAppName(_ name: String, for token: ApplicationToken) {
-        guard isSingleApplicationSelection,
-              selection.applicationTokens.contains(token)
-        else { return }
-
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !LockStore.isGenericDisplayName(trimmed) else { return }
-
-        capturedAppName = trimmed
-
-        // Only auto-fill the name field if the user hasn't typed their own name.
-        // Setting lockName triggers onChange(of: lockName), which derives the scheme.
-        let current = lockName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if current.isEmpty || LockStore.isGenericDisplayName(current) {
-            lockName = trimmed
-        }
-
-        NSLog("🔗 Unscroll: captured selected app label '%@'", trimmed)
-    }
-
     private func resolvedLockName() -> String {
         let trimmedName = lockName.trimmingCharacters(in: .whitespacesAndNewlines)
         if !LockStore.isGenericDisplayName(trimmedName) {
             return trimmedName
         }
 
-        if let capturedAppName,
-           !LockStore.isGenericDisplayName(capturedAppName) {
-            return capturedAppName
-        }
-
-        // Re-resolve from the selection itself (Apple's app metadata + our bundle-ID
-        // mapping). Returns the real name when available, otherwise a generic label
-        // that the background self-heal upgrades later — never requires typing.
+        // No confirmed name: fall back to whatever Apple's metadata / bundle-ID mapping
+        // gives us (often still generic for a single app, which is fine — the lock just
+        // won't deep-link until the user names it in Edit).
         return LockStore.displayName(for: selection)
     }
 }
@@ -440,10 +348,10 @@ struct AppNameChip: View {
             action()
         } label: {
             Text(name)
-                .font(.caption.weight(.semibold))
+                .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
                 .background(isSelected ? AppTheme.accent : AppTheme.accentSoft, in: Capsule())
                 .foregroundStyle(isSelected ? .white : AppTheme.accentDeep)
                 .overlay {
@@ -451,6 +359,128 @@ struct AppNameChip: View {
                 }
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Confirms which single app a lock targets so it can deep-link there. iOS never exposes the
+/// selected app's real name to the main app (only entitled Screen Time extensions can read
+/// it, and they're sandboxed away from every shared store), so the user taps the matching
+/// app once — or types it. The chosen name drives the launch scheme via `LockStore`.
+struct AppNamePicker: View {
+    @Binding var name: String
+
+    private var trimmed: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var resolves: Bool { !trimmed.isEmpty && !LockStore.isGenericDisplayName(trimmed) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Which app is this?")
+                    .font(.subheadline.weight(.semibold))
+                Text("Tap it so unlocking takes you straight there.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            FlowLayout(spacing: 8) {
+                ForEach(LockStore.commonAppNames, id: \.self) { appName in
+                    AppNameChip(
+                        name: appName,
+                        isSelected: trimmed.caseInsensitiveCompare(appName) == .orderedSame
+                    ) {
+                        name = appName
+                    }
+                }
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                TextField("Not listed? Type its name", text: $name)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .submitLabel(.done)
+                    .font(.subheadline.weight(.medium))
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 44)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            Label(hint, systemImage: resolves ? "checkmark.circle.fill" : "hand.tap")
+                .font(.caption)
+                .foregroundStyle(resolves ? AppTheme.accent : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .glassCard(padding: 14)
+    }
+
+    private var hint: String {
+        resolves
+            ? "Tapping this lock will open \(trimmed)."
+            : "Pick or type your app so tapping this lock opens it."
+    }
+}
+
+/// Shown when a lock covers more than one app (or a category / website). There's no single
+/// app to jump to, so we don't ask for a name — the user opens what they need from the
+/// Home Screen as usual.
+struct MultiSelectionNote: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "square.grid.2x2.fill")
+                .font(.headline)
+                .foregroundStyle(AppTheme.accent)
+            Text("This lock covers several apps. There's no single app to jump to — open them from your Home Screen as usual.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(padding: 14)
+    }
+}
+
+/// A simple wrapping (left-to-right, then onto the next line) layout for chips. iOS 16+.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth, x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+
+        return CGSize(width: maxWidth == .infinity ? x : maxWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Void) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 

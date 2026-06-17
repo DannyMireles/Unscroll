@@ -36,8 +36,10 @@ struct MathUnlockView: View {
 
                     if let feedback {
                         Text(feedback)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(AppTheme.accentDeep)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     PrimaryButton(title: "Continue", isDisabled: answer.isEmpty) {
@@ -64,7 +66,8 @@ struct MathUnlockView: View {
             onComplete()
         } else {
             Haptics.retry()
-            feedback = "Try once more."
+            // Show the correct answer for the prompt they just missed, then give a fresh one.
+            feedback = "Not quite — \(problem.prompt) = \(problem.answer). Here's a new one."
             answer = ""
             problem = MathChallengeEngine.generate()
         }
