@@ -11,18 +11,39 @@ struct UpgradeSheet: View {
     @State private var restoreMessage: String?
 
     var body: some View {
+        Group {
+            if purchaseManager.isConfigured {
+                // Straight to the RevenueCat paywall — no extra intro step, and no navigation bar
+                // pushing the paywall down. RevenueCat's own close button dismisses it.
+                PaywallView(displayCloseButton: true)
+                    .onPurchaseCompleted { customerInfo in
+                        purchaseManager.update(with: customerInfo)
+                        Haptics.success()
+                        dismiss()
+                    }
+                    .onRestoreCompleted { customerInfo in
+                        purchaseManager.update(with: customerInfo)
+                        if purchaseManager.isPro {
+                            Haptics.success()
+                            dismiss()
+                        }
+                    }
+                    .task {
+                        await purchaseManager.refreshOfferings()
+                    }
+            } else {
+                setupFallback
+            }
+        }
+    }
+
+    /// Shown only when RevenueCat isn't configured yet — keeps the setup notice and the
+    /// close button. Once a key + offering exist, we go straight to the paywall above.
+    private var setupFallback: some View {
         NavigationStack {
             ZStack {
                 AppBackground()
-
-                Group {
-                    if showRevenueCatPaywall {
-                        revenueCatPaywall
-                    } else {
-                        intro
-                    }
-                }
-                .animation(AppTheme.Motion.popup, value: showRevenueCatPaywall)
+                intro
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -160,44 +181,6 @@ struct UpgradeSheet: View {
             .padding(.horizontal, 22)
             .padding(.top, 20)
             .padding(.bottom, 30)
-        }
-    }
-
-    @ViewBuilder
-    private var revenueCatPaywall: some View {
-        if purchaseManager.isConfigured {
-            PaywallView(displayCloseButton: true)
-                .onPurchaseCompleted { customerInfo in
-                    purchaseManager.update(with: customerInfo)
-                    Haptics.success()
-                    dismiss()
-                }
-                .onRestoreCompleted { customerInfo in
-                    purchaseManager.update(with: customerInfo)
-                    if purchaseManager.isPro {
-                        Haptics.success()
-                        dismiss()
-                    } else {
-                        restoreMessage = "No active Pro purchase was found for this account."
-                        showRevenueCatPaywall = false
-                    }
-                }
-                .onPurchaseCancelled {
-                    showRevenueCatPaywall = false
-                }
-                .onPurchaseFailure { error in
-                    restoreMessage = error.localizedDescription
-                    showRevenueCatPaywall = false
-                }
-                .onRestoreFailure { error in
-                    restoreMessage = error.localizedDescription
-                    showRevenueCatPaywall = false
-                }
-                .task {
-                    await purchaseManager.refreshOfferings()
-                }
-        } else {
-            intro
         }
     }
 
