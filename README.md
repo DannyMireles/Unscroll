@@ -1,6 +1,6 @@
-# Unscroll
+# Cuewell
 
-Unscroll is a local-only SwiftUI iOS app that adds intentional friction after a selected app passes a daily Screen Time limit.
+Cuewell is a local-only SwiftUI iOS app that adds a quick cognitive challenge after a selected app passes a daily Screen Time limit.
 
 ## What is included
 
@@ -21,12 +21,12 @@ Unscroll is a local-only SwiftUI iOS app that adds intentional friction after a 
 
 ## Build
 
-Open `Unscroll.xcodeproj` in Xcode and build the `Unscroll` scheme.
+Open `Cuewell.xcodeproj` in Xcode and build the `Cuewell` scheme.
 
 For command-line compile validation without signing:
 
 ```sh
-xcodebuild -project Unscroll.xcodeproj -scheme Unscroll -configuration Debug -destination generic/platform=iOS -derivedDataPath /tmp/UnscrollDerivedData CODE_SIGNING_ALLOWED=NO build
+xcodebuild -project Cuewell.xcodeproj -scheme Cuewell -configuration Debug -destination generic/platform=iOS -derivedDataPath /tmp/CuewellDerivedData CODE_SIGNING_ALLOWED=NO build
 ```
 
 ## Required Apple setup
@@ -34,8 +34,8 @@ xcodebuild -project Unscroll.xcodeproj -scheme Unscroll -configuration Debug -de
 Screen Time APIs require Apple-managed capabilities before they work on a physical device:
 
 - Add the Family Controls capability to the app target and all three extension targets.
-- Create an App Group and replace `group.com.selerim.unscroll` in:
-  - `Unscroll/App/AppConstants.swift`
+- Create an App Group and replace `group.com.selerim.cuewell` in:
+  - `Cuewell/App/AppConstants.swift`
   - all `.entitlements` files
 - Update bundle identifiers and team settings in Xcode.
 - Test Screen Time behavior on a real device. FamilyControls, DeviceActivity, and ManagedSettings behavior is limited or unavailable in the simulator.
@@ -48,6 +48,6 @@ iOS does not expose a reliable public callback for "the user has left the shield
 - ManagedSettings shields the selected app tokens.
 - The shield action stores a pending local unlock request.
 - Completing the challenge grants a short temporary unblock window.
-- Shields are reapplied when the temporary unlock expires or when Unscroll becomes active again.
+- Shields are reapplied when the temporary unlock expires or when Cuewell becomes active again.
 
-The Screen Time integration is intentionally isolated in `Unscroll/ScreenTime` and the extension targets so the unlock-session policy can be tightened if Apple exposes more precise session lifecycle hooks later.
+The Screen Time integration is intentionally isolated in `Cuewell/ScreenTime` and the extension targets so the unlock-session policy can be tightened if Apple exposes more precise session lifecycle hooks later.

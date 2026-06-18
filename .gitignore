@@ -3,6 +3,8 @@ DerivedData/
 *.xcuserstate
 *.xcuserdatad/
 xcuserdata/
+*.local.xcconfig
+RevenueCatSecrets.xcconfig
 
 # Swift Package Manager
 .build/
