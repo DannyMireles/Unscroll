@@ -17,7 +17,7 @@ struct AddLockView: View {
     @State private var isPickerPresented = false
     @State private var hours = 0
     @State private var minutes = 30
-    @State private var methods: Set<UnlockMethod> = [.mentalMath]
+    @State private var methods: Set<UnlockMethod> = AddLockView.initialMethods()
     @State private var rewardMode: UnlockRewardMode = .incrementalByLimit
 
     @State private var step = 0
@@ -45,6 +45,16 @@ struct AddLockView: View {
     /// predictable order rather than the Set's arbitrary one).
     private var orderedMethods: [UnlockMethod] {
         UnlockMethod.allSelectable.filter { methods.contains($0) }
+    }
+
+    /// Default selection for a new lock = the exercises of the categories the user picked
+    /// during onboarding (falls back to Mental Math if none were chosen).
+    private static func initialMethods() -> Set<UnlockMethod> {
+        let raw = UserDefaults.standard.string(forKey: "preferredCategories") ?? ""
+        let leaves = raw.split(separator: ",")
+            .compactMap { ExerciseCategory(rawValue: String($0)) }
+            .flatMap { $0.exercises }
+        return leaves.isEmpty ? [.mentalMath] : Set(leaves)
     }
 
     private var primaryDisabled: Bool {
@@ -827,28 +837,28 @@ struct UnlockMethodSelectionGrid: View {
                     .font(AppTheme.Typography.captionSemibold)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(selection.count > 1 ? "One picked at random each unlock" : "Tap to add more")
+                Text(selection.count > 1 ? "One picked at random each unlock" : "Tap a category to add more")
                     .font(AppTheme.Typography.caption)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 2)
 
-            ForEach(Array(UnlockMethod.allSelectable.enumerated()), id: \.element.id) { index, option in
-                ChallengeChoiceRow(
-                    method: option,
-                    isSelected: selection.contains(option),
-                    onPreview: onPreview.map { handler in { handler(option) } }
-                ) {
-                    toggle(option)
-                }
-                .flowItem(index)
+            ForEach(ExerciseCategory.allCases) { category in
+                CategorySection(
+                    category: category,
+                    selection: $selection,
+                    onPreview: onPreview,
+                    toggleExercise: toggle,
+                    toggleCategory: toggleCategory
+                )
             }
         }
     }
 
     private func toggle(_ method: UnlockMethod) {
         if selection.contains(method) {
-            // Always keep at least one exercise selected.
+            // Always keep at least one exercise selected overall.
             guard selection.count > 1 else {
                 Haptics.retry()
                 return
@@ -858,6 +868,148 @@ struct UnlockMethodSelectionGrid: View {
             selection.insert(method)
         }
         Haptics.softTap()
+    }
+
+    private func toggleCategory(_ category: ExerciseCategory) {
+        let leaves = Set(category.exercises)
+        if leaves.isSubset(of: selection) {
+            // All on → turn the category off, but never leave zero selected overall.
+            let remaining = selection.subtracting(leaves)
+            guard !remaining.isEmpty else {
+                Haptics.retry()
+                return
+            }
+            selection = remaining
+        } else {
+            selection.formUnion(leaves)
+        }
+        Haptics.softTap()
+    }
+}
+
+/// One category, collapsible. Collapsed by default to keep the page clean — tap the
+/// header to reveal and pick its sub-exercises. Shared by the Add and Edit lock flows.
+private struct CategorySection: View {
+    let category: ExerciseCategory
+    @Binding var selection: Set<UnlockMethod>
+    var onPreview: ((UnlockMethod) -> Void)?
+    let toggleExercise: (UnlockMethod) -> Void
+    let toggleCategory: (ExerciseCategory) -> Void
+
+    @State private var isExpanded = false
+
+    private var selectedInCategory: [UnlockMethod] {
+        category.exercises.filter { selection.contains($0) }
+    }
+    private var selectedCount: Int { selectedInCategory.count }
+    private var allOn: Bool { selectedCount == category.exercises.count }
+    private var anyOn: Bool { selectedCount > 0 }
+    private var hasMultiple: Bool { category.exercises.count > 1 }
+
+    /// When collapsed, the secondary line names what's selected (or the category blurb).
+    private var summaryLine: String {
+        guard anyOn else { return category.subtitle }
+        return selectedInCategory.map(\.shortTitle).joined(separator: ", ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header
+
+            if isExpanded {
+                VStack(spacing: 10) {
+                    if hasMultiple {
+                        selectAllRow
+                    }
+
+                    ForEach(category.exercises) { exercise in
+                        ChallengeChoiceRow(
+                            method: exercise,
+                            isSelected: selection.contains(exercise),
+                            onPreview: onPreview.map { handler in { handler(exercise) } }
+                        ) {
+                            toggleExercise(exercise)
+                        }
+                    }
+                }
+                .padding(.top, 2)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    private var header: some View {
+        Button {
+            Haptics.softTap()
+            withAnimation(AppTheme.Motion.page) { isExpanded.toggle() }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: category.systemImage)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(anyOn ? AppTheme.accentOnChrome : .secondary)
+                    .frame(width: 38, height: 38)
+                    .background(
+                        (anyOn ? AppTheme.accentSoft : Color.secondary.opacity(0.08)),
+                        in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(category.title)
+                        .font(AppTheme.Typography.headlineMedium)
+                        .foregroundStyle(.primary)
+                    Text(summaryLine)
+                        .font(AppTheme.Typography.caption)
+                        .foregroundStyle(anyOn ? AppTheme.accentOnChrome : .secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 4)
+
+                if anyOn {
+                    Text("\(selectedCount)")
+                        .font(AppTheme.Typography.captionSemibold)
+                        .foregroundStyle(AppTheme.accentOnChrome)
+                        .frame(minWidth: 22, minHeight: 22)
+                        .padding(.horizontal, 5)
+                        .background(AppTheme.accentSoft, in: Capsule())
+                }
+
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
+                    .stroke(anyOn ? AppTheme.accent.opacity(0.5) : AppTheme.chromeStroke, lineWidth: anyOn ? 1.5 : 1)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(AppTheme.Motion.selection, value: anyOn)
+    }
+
+    private var selectAllRow: some View {
+        Button {
+            toggleCategory(category)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: allOn ? "checkmark.circle.fill" : "circle")
+                    .font(.subheadline)
+                    .foregroundStyle(allOn ? AppTheme.accent : Color.secondary.opacity(0.5))
+                Text(allOn ? "Clear all" : "Select all")
+                    .font(AppTheme.Typography.captionSemibold)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -935,9 +1087,10 @@ private extension UnlockMethod {
         switch self {
         case .mentalMath: return "function"
         case .patternMemory: return "square.grid.3x3"
-        case .breathing: return "wind"
-        case .reflect: return "character.book.closed"
         case .read: return "book.fill"
+        case .spanish, .french, .german: return "character.bubble.fill"
+        case .breathing: return "wind"
+        case .journaling: return "square.and.pencil"
         }
     }
 
@@ -945,9 +1098,12 @@ private extension UnlockMethod {
         switch self {
         case .mentalMath: return "A quick number prompt."
         case .patternMemory: return "Watch and repeat taps."
-        case .breathing: return "Three guided breaths."
-        case .reflect: return "Learn one Spanish word."
         case .read: return "Read a short article."
+        case .spanish: return "Learn one Spanish word."
+        case .french: return "Learn one French word."
+        case .german: return "Learn one German word."
+        case .breathing: return "Three guided breaths."
+        case .journaling: return "Pause on a prompt."
         }
     }
 }
@@ -1001,8 +1157,11 @@ struct MethodPreviewView: View {
         case .mentalMath: MathPreview()
         case .patternMemory: PatternPreview()
         case .breathing: BreathingPreview()
-        case .reflect: SpanishPreview()
         case .read: ReadPreview()
+        case .spanish: LanguagePreview(language: .spanish)
+        case .french: LanguagePreview(language: .french)
+        case .german: LanguagePreview(language: .german)
+        case .journaling: JournalingPreview()
         }
     }
 }
@@ -1101,18 +1260,27 @@ private struct BreathingPreview: View {
     }
 }
 
-private struct SpanishPreview: View {
-    @State private var card = SpanishWordEngine.randomCard(avoiding: nil)
-    @State private var choices: [String] = []
+private struct LanguagePreview: View {
+    let language: LearnableLanguage
+    @State private var card: LanguageCard
+    @State private var choices: [String]
     @State private var revealed = false
+
+    init(language: LearnableLanguage) {
+        self.language = language
+        // Use the instant bundled fallback so the preview needs no network.
+        let sample = LanguageEngine.fallbackCard(for: language, avoiding: nil)
+        _card = State(initialValue: sample)
+        _choices = State(initialValue: LanguageEngine.choices(for: sample))
+    }
 
     var body: some View {
         VStack(spacing: 14) {
-            Text(card.spanish)
+            Text(card.word)
                 .font(.system(.largeTitle, design: .rounded).weight(.semibold))
 
             ForEach(choices, id: \.self) { choice in
-                let correct = SpanishWordEngine.isCorrectAnswer(choice, for: card)
+                let correct = LanguageEngine.isCorrectAnswer(choice, for: card)
                 HStack {
                     Text(choice)
                         .font(.headline.weight(.medium))
@@ -1132,13 +1300,33 @@ private struct SpanishPreview: View {
         }
         .frame(maxWidth: .infinity)
         .glassCard()
-        .onAppear {
-            if choices.isEmpty { choices = SpanishWordEngine.choices(for: card) }
-        }
         .task {
             try? await Task.sleep(nanoseconds: 1_400_000_000)
             withAnimation { revealed = true }
         }
+    }
+}
+
+private struct JournalingPreview: View {
+    @State private var prompt = WellnessPromptEngine.fallbackPrompt()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Journaling", systemImage: "square.and.pencil")
+                .font(AppTheme.Typography.captionSemibold)
+                .foregroundStyle(AppTheme.accentOnChrome)
+
+            Text(prompt.text)
+                .font(.system(.title3, design: .rounded).weight(.medium))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("In the unlock, sit with the prompt for a few seconds, then continue.")
+                .font(AppTheme.Typography.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
     }
 }
 

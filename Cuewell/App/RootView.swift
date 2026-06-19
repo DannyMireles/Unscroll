@@ -174,13 +174,13 @@ struct RootView: View {
             if completedLock.unlockRewardMode == .unlockedRestOfDay {
                 return "Your apps are unlocked for today."
             }
-            return "Your apps are unlocked for \(grantedMinutes) minute\(grantedMinutes == 1 ? "" : "s")."
+            return "Your apps are unlocked for \(grantedMinutes) more minute\(grantedMinutes == 1 ? "" : "s") of use."
         }
 
         if completedLock?.unlockRewardMode == .unlockedRestOfDay {
             return "Unlocked for the rest of today."
         }
-        return "Unlocked \(grantedMinutes) minute\(grantedMinutes == 1 ? "" : "s")."
+        return "\(grantedMinutes) more minute\(grantedMinutes == 1 ? "" : "s") of use unlocked."
     }
 
     private func openAppButton(for lock: AppLock) -> some View {

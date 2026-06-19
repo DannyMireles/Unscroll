@@ -1,83 +1,95 @@
 import SwiftUI
 
-struct ReflectUnlockView: View {
+struct LanguageUnlockView: View {
     let lock: AppLock
+    let language: LearnableLanguage
     let onComplete: () -> Void
 
-    @State private var card = SpanishWordEngine.randomCard(avoiding: nil)
+    @State private var card: LanguageCard?
     @State private var choices: [String] = []
     @State private var previousCardID: String?
     @State private var selectedChoice: String?
     @State private var wrongChoices: Set<String> = []
     @State private var revealedAnswer = false
+    @State private var isLoading = true
     @State private var helperMessage = "Tap the English meaning."
 
     var body: some View {
         UnlockScreenScaffold(
             lock: lock,
-            title: "Learn one Spanish word.",
+            title: "Learn one \(language.displayName) word.",
             subtitle: "Pick the English meaning to continue."
         ) {
             VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Spanish")
-                        .font(AppTheme.Typography.captionSemibold)
-                        .foregroundStyle(.secondary)
-                    Text(card.spanish)
-                        .font(AppTheme.Typography.display)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentTransition(.opacity)
-                }
-                .padding(14)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
-                        .stroke(Color.white.opacity(0.30), lineWidth: 1)
-                }
+                wordCard
 
-                VStack(spacing: 10) {
-                    ForEach(Array(choices.enumerated()), id: \.element) { index, choice in
-                        ChoiceButton(
-                            title: choice,
-                            state: choiceState(for: choice)
-                        ) {
-                            select(choice)
+                if isLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Finding a word…")
+                            .font(AppTheme.Typography.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 80)
+                } else {
+                    VStack(spacing: 10) {
+                        ForEach(Array(choices.enumerated()), id: \.element) { index, choice in
+                            ChoiceButton(
+                                title: choice,
+                                state: choiceState(for: choice)
+                            ) {
+                                select(choice)
+                            }
+                            .flowItem(index)
                         }
-                        .flowItem(index)
                     }
-                }
 
-                Text(helperMessage)
-                    .font(AppTheme.Typography.footnoteMedium)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .contentTransition(.opacity)
+                    Text(helperMessage)
+                        .font(AppTheme.Typography.footnoteMedium)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .contentTransition(.opacity)
 
-                HStack(spacing: 10) {
-                    SecondaryActionButton(title: "Reveal", icon: "lightbulb") {
-                        reveal()
-                    }
-                    SecondaryActionButton(title: "New Word", icon: "arrow.triangle.2.circlepath") {
-                        loadNextCard()
+                    HStack(spacing: 10) {
+                        SecondaryActionButton(title: "Reveal", icon: "lightbulb") {
+                            reveal()
+                        }
+                        SecondaryActionButton(title: "New Word", icon: "arrow.triangle.2.circlepath") {
+                            Task { await loadNextCard() }
+                        }
                     }
                 }
             }
         }
-        .animation(AppTheme.Motion.reveal, value: card.id)
+        .animation(AppTheme.Motion.reveal, value: card?.id)
+        .animation(AppTheme.Motion.reveal, value: isLoading)
         .animation(AppTheme.Motion.quick, value: helperMessage)
-        .onAppear {
-            if choices.isEmpty {
-                choices = SpanishWordEngine.choices(for: card)
-            }
-            previousCardID = card.id
+        .task { await loadNextCard() }
+    }
+
+    @ViewBuilder
+    private var wordCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(language.displayName)
+                .font(AppTheme.Typography.captionSemibold)
+                .foregroundStyle(.secondary)
+            Text(card?.word ?? "…")
+                .font(AppTheme.Typography.display)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentTransition(.opacity)
+        }
+        .padding(14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
+                .stroke(AppTheme.chromeStroke, lineWidth: 1)
         }
     }
 
     private func choiceState(for choice: String) -> ChoiceButton.SelectionState {
-        let isCorrect = SpanishWordEngine.isCorrectAnswer(choice, for: card)
-        // Once revealed (after a miss or "Reveal"), or once they pick correctly, the right
-        // answer is highlighted green so they can see/learn it.
+        guard let card else { return .idle }
+        let isCorrect = LanguageEngine.isCorrectAnswer(choice, for: card)
         if isCorrect, revealedAnswer || selectedChoice == choice {
             return .correct
         }
@@ -88,9 +100,9 @@ struct ReflectUnlockView: View {
     }
 
     private func select(_ choice: String) {
-        let isCorrect = SpanishWordEngine.isCorrectAnswer(choice, for: card)
+        guard let card else { return }
+        let isCorrect = LanguageEngine.isCorrectAnswer(choice, for: card)
 
-        // After the answer has been shown, tapping the highlighted correct choice continues.
         if revealedAnswer {
             if isCorrect {
                 Haptics.success()
@@ -103,42 +115,43 @@ struct ReflectUnlockView: View {
 
         if isCorrect {
             selectedChoice = choice
-            helperMessage = "¡Correcto!"
+            helperMessage = "Correct!"
             Haptics.success()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                 onComplete()
             }
         } else {
-            // Wrong: mark it, then reveal the right answer so they learn it before continuing.
             withAnimation(AppTheme.Motion.reveal) {
                 wrongChoices.insert(choice)
                 revealedAnswer = true
-                helperMessage = "Not quite — “\(card.spanish)” means “\(card.english).” Tap it to continue."
+                helperMessage = "Not quite — “\(card.word)” means “\(card.english).” Tap it to continue."
             }
             Haptics.retry()
         }
     }
 
     private func reveal() {
-        guard !revealedAnswer, selectedChoice == nil else { return }
+        guard let card, !revealedAnswer, selectedChoice == nil else { return }
         withAnimation(AppTheme.Motion.reveal) {
             revealedAnswer = true
-            helperMessage = "“\(card.spanish)” means “\(card.english).” Tap it to continue."
+            helperMessage = "“\(card.word)” means “\(card.english).” Tap it to continue."
         }
         Haptics.softTap()
     }
 
-    private func loadNextCard() {
-        let next = SpanishWordEngine.randomCard(avoiding: previousCardID)
-        withAnimation(AppTheme.Motion.reveal) {
-            previousCardID = next.id
-            card = next
-            choices = SpanishWordEngine.choices(for: next)
-            selectedChoice = nil
-            wrongChoices = []
-            revealedAnswer = false
-            helperMessage = "Tap the English meaning."
-        }
+    @MainActor
+    private func loadNextCard() async {
+        isLoading = true
+        selectedChoice = nil
+        wrongChoices = []
+        revealedAnswer = false
+        helperMessage = "Tap the English meaning."
+
+        let next = await LanguageEngine.card(for: language, avoiding: previousCardID)
+        previousCardID = next.id
+        card = next
+        choices = LanguageEngine.choices(for: next)
+        isLoading = false
     }
 }
 
@@ -325,6 +338,96 @@ struct ReadUnlockView: View {
         dwellTask?.cancel()
         dwellTask = Task { @MainActor in
             var remaining = Self.readDwellSeconds
+            while remaining > 0 {
+                secondsLeft = remaining
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                if Task.isCancelled { return }
+                remaining -= 1
+            }
+            secondsLeft = 0
+            canContinue = true
+            Haptics.success()
+        }
+    }
+}
+
+// MARK: - Journaling (Wellness)
+
+struct JournalingUnlockView: View {
+    let lock: AppLock
+    let onComplete: () -> Void
+
+    @State private var prompt: WellnessPrompt?
+    @State private var isLoading = true
+    @State private var canContinue = false
+    @State private var secondsLeft = JournalingUnlockView.dwellSeconds
+    @State private var dwellTask: Task<Void, Never>?
+
+    private static let dwellSeconds = 5
+
+    var body: some View {
+        UnlockScreenScaffold(
+            lock: lock,
+            title: "Take a moment.",
+            subtitle: "Sit with this for a few seconds, then you're through."
+        ) {
+            VStack(alignment: .leading, spacing: 16) {
+                if isLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Finding a prompt…")
+                            .font(AppTheme.Typography.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 100)
+                } else if let prompt {
+                    Text(prompt.text)
+                        .font(.system(.title3, design: .rounded).weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentTransition(.opacity)
+                }
+
+                SecondaryActionButton(
+                    title: "New prompt",
+                    icon: "arrow.triangle.2.circlepath",
+                    isDisabled: isLoading
+                ) {
+                    Task { await load() }
+                }
+
+                PrimaryButton(
+                    title: canContinue ? "Continue" : "Reflect… \(secondsLeft)",
+                    isDisabled: !canContinue
+                ) {
+                    Haptics.success()
+                    onComplete()
+                }
+            }
+        }
+        .animation(AppTheme.Motion.reveal, value: isLoading)
+        .animation(AppTheme.Motion.quick, value: canContinue)
+        .task { await load() }
+        .onDisappear { dwellTask?.cancel() }
+    }
+
+    @MainActor
+    private func load() async {
+        dwellTask?.cancel()
+        canContinue = false
+        secondsLeft = Self.dwellSeconds
+        isLoading = true
+        prompt = await WellnessPromptEngine.prompt()
+        isLoading = false
+        startDwell()
+    }
+
+    private func startDwell() {
+        dwellTask?.cancel()
+        dwellTask = Task { @MainActor in
+            var remaining = Self.dwellSeconds
             while remaining > 0 {
                 secondsLeft = remaining
                 try? await Task.sleep(nanoseconds: 1_000_000_000)

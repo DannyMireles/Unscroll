@@ -8,6 +8,9 @@ struct CuewellReportExtension: DeviceActivityReportExtension {
         CuewellUsageReport { summary in
             CuewellUsageReportView(summary: summary)
         }
+        CuewellLockUsageReport { summary in
+            CuewellLockUsageReportView(summary: summary)
+        }
     }
 }
 
@@ -47,6 +50,76 @@ private struct CuewellUsageReport: DeviceActivityReportScene {
             }
         }
         return summary
+    }
+}
+
+// MARK: - Per-lock usage (Today + last 7 days)
+
+/// Computed usage shown on a lock's Info screen.
+struct CuewellLockUsageSummary {
+    var todaySeconds: Double = 0
+    var weekSeconds: Double = 0
+    var hasData: Bool = false
+}
+
+private struct CuewellLockUsageReport: DeviceActivityReportScene {
+    let context = DeviceActivityReport.Context("Cuewell Lock Usage")
+    let content: (CuewellLockUsageSummary) -> CuewellLockUsageReportView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> CuewellLockUsageSummary {
+        var summary = CuewellLockUsageSummary()
+        let calendar = Calendar.current
+        for await deviceData in data {
+            for await segment in deviceData.activitySegments {
+                let isToday = calendar.isDate(segment.dateInterval.start, inSameDayAs: Date())
+                for await category in segment.categories {
+                    for await applicationActivity in category.applications {
+                        let duration = applicationActivity.totalActivityDuration
+                        guard duration > 0 else { continue }
+                        summary.hasData = true
+                        summary.weekSeconds += duration
+                        if isToday { summary.todaySeconds += duration }
+                    }
+                }
+            }
+        }
+        return summary
+    }
+}
+
+struct CuewellLockUsageReportView: View {
+    let summary: CuewellLockUsageSummary
+
+    var body: some View {
+        VStack(spacing: 12) {
+            row(title: "Today", seconds: summary.todaySeconds, emphasized: true)
+            Divider().opacity(0.4)
+            row(title: "Last 7 days", seconds: summary.weekSeconds, emphasized: false)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func row(title: String, seconds: Double, emphasized: Bool) -> some View {
+        HStack {
+            Text(title)
+                .font(emphasized ? .headline : .subheadline)
+                .foregroundStyle(emphasized ? .primary : .secondary)
+            Spacer(minLength: 8)
+            Text(formatted(seconds))
+                .font(emphasized ? .title3.weight(.semibold) : .body.weight(.medium))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+        }
+    }
+
+    private func formatted(_ seconds: Double) -> String {
+        guard summary.hasData, seconds > 0 else { return "—" }
+        let total = Int(seconds)
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        if minutes > 0 { return "\(minutes)m" }
+        return "<1m"
     }
 }
 

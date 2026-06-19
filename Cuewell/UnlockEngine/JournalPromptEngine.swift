@@ -320,3 +320,249 @@ enum WikipediaReadEngine {
         )
     ]
 }
+
+// MARK: - Language exercise
+
+enum LearnableLanguage: String {
+    case spanish
+    case french
+    case german
+
+    /// MyMemory / ISO language code.
+    var code: String {
+        switch self {
+        case .spanish: return "es"
+        case .french: return "fr"
+        case .german: return "de"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .spanish: return "Spanish"
+        case .french: return "French"
+        case .german: return "German"
+        }
+    }
+
+    init?(method: UnlockMethod) {
+        switch method {
+        case .spanish: self = .spanish
+        case .french: self = .french
+        case .german: self = .german
+        default: return nil
+        }
+    }
+}
+
+struct LanguageCard: Equatable {
+    let id: String
+    /// The foreign-language word shown to the user.
+    let word: String
+    /// The English meaning (the correct answer).
+    let english: String
+    let acceptedEnglishAnswers: [String]
+}
+
+/// Sources vocabulary by translating a shared English seed list into the chosen language via a
+/// free translation API (MyMemory, no key). Falls back to bundled pairs so an unlock never
+/// blocks — the same API-with-fallback shape as `WikipediaReadEngine`.
+enum LanguageEngine {
+    /// Common, concrete English words — language-agnostic, so we don't hardcode a list per
+    /// language. The API translates these on the fly; these are also the answer-choice pool.
+    static let seedWords: [String] = [
+        "house", "dog", "cat", "water", "food", "friend", "book", "city", "street", "door",
+        "window", "chair", "car", "train", "music", "movie", "game", "idea", "money", "sun",
+        "moon", "star", "sea", "river", "mountain", "tree", "flower", "road", "bread", "milk",
+        "coffee", "tea", "apple", "fish", "bird", "hand", "head", "heart", "eye", "day",
+        "night", "week", "month", "year", "time", "work", "school", "family", "child", "name",
+        "love", "light", "color", "paper", "key", "phone", "clock", "garden", "kitchen",
+        "market", "store", "hospital", "bridge", "beach", "forest", "rain", "snow", "wind",
+        "fire", "earth", "sky", "cloud", "word", "question", "answer", "story", "picture",
+        "song", "dream", "life", "world", "country", "number", "letter", "place", "morning",
+        "evening", "bread", "kitchen"
+    ]
+
+    static func card(for language: LearnableLanguage, avoiding previousID: String?) async -> LanguageCard {
+        if let online = await fetchCard(for: language, avoiding: previousID) {
+            return online
+        }
+        return fallbackCard(for: language, avoiding: previousID)
+    }
+
+    private static func fetchCard(for language: LearnableLanguage, avoiding previousID: String?) async -> LanguageCard? {
+        var word = seedWords.randomElement() ?? "house"
+        if let previousID, "\(language.code)-\(word)" == previousID, seedWords.count > 1 {
+            word = seedWords.first { "\(language.code)-\($0)" != previousID } ?? word
+        }
+        guard let translated = await translate(word, to: language.code) else { return nil }
+        return LanguageCard(
+            id: "\(language.code)-\(word)",
+            word: translated,
+            english: word,
+            acceptedEnglishAnswers: [word]
+        )
+    }
+
+    private static func translate(_ word: String, to code: String) async -> String? {
+        var components = URLComponents(string: "https://api.mymemory.translated.net/get")
+        components?.queryItems = [
+            URLQueryItem(name: "q", value: word),
+            URLQueryItem(name: "langpair", value: "en|\(code)")
+        ]
+        guard let url = components?.url else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            let decoded = try JSONDecoder().decode(MyMemoryResponse.self, from: data)
+            let text = decoded.responseData.translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Reject empties, untranslated echoes, and anything suspiciously long.
+            guard !text.isEmpty,
+                  text.count <= 32,
+                  text.lowercased() != word.lowercased(),
+                  !text.contains("INVALID") else { return nil }
+            return text
+        } catch {
+            return nil
+        }
+    }
+
+    /// Shuffled English choices: the correct meaning plus distractors from the seed pool.
+    static func choices(for card: LanguageCard, count: Int = 4) -> [String] {
+        var seen: Set<String> = [card.english.lowercased()]
+        var result: [String] = [card.english]
+        for candidate in seedWords.shuffled() where result.count < count {
+            let key = candidate.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            result.append(candidate)
+        }
+        return result.shuffled()
+    }
+
+    static func isCorrectAnswer(_ value: String, for card: LanguageCard) -> Bool {
+        let normalized = value.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return false }
+        return card.acceptedEnglishAnswers.contains {
+            $0.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                .trimmingCharacters(in: .whitespacesAndNewlines) == normalized
+        }
+    }
+
+    static func fallbackCard(for language: LearnableLanguage, avoiding previousID: String?) -> LanguageCard {
+        switch language {
+        case .spanish:
+            // Reuse the rich offline Spanish set.
+            let card = SpanishWordEngine.randomCard(avoiding: previousID)
+            return LanguageCard(
+                id: card.id,
+                word: card.spanish,
+                english: card.english,
+                acceptedEnglishAnswers: card.acceptedEnglishAnswers
+            )
+        case .french, .german:
+            let pairs = language == .french ? frenchFallback : germanFallback
+            var entry = pairs.randomElement() ?? ("?", "word")
+            if pairs.count > 1 {
+                while "\(language.code)-\(entry.1)" == previousID {
+                    entry = pairs.randomElement() ?? entry
+                }
+            }
+            return LanguageCard(
+                id: "\(language.code)-\(entry.1)",
+                word: entry.0,
+                english: entry.1,
+                acceptedEnglishAnswers: [entry.1]
+            )
+        }
+    }
+
+    // (foreignWord, englishSeedWord) — englishes are seed words so `choices` always has distractors.
+    private static let frenchFallback: [(String, String)] = [
+        ("maison", "house"), ("chien", "dog"), ("chat", "cat"), ("eau", "water"), ("ami", "friend"),
+        ("livre", "book"), ("ville", "city"), ("rue", "street"), ("porte", "door"), ("fenêtre", "window"),
+        ("chaise", "chair"), ("voiture", "car"), ("musique", "music"), ("argent", "money"), ("soleil", "sun"),
+        ("lune", "moon"), ("mer", "sea"), ("arbre", "tree"), ("pain", "bread"), ("lait", "milk"),
+        ("café", "coffee"), ("pomme", "apple"), ("poisson", "fish"), ("oiseau", "bird"), ("cœur", "heart"),
+        ("jour", "day"), ("nuit", "night"), ("année", "year"), ("travail", "work"), ("famille", "family"),
+        ("amour", "love"), ("lumière", "light"), ("clé", "key"), ("feu", "fire"), ("pluie", "rain"),
+        ("ciel", "sky"), ("mot", "word")
+    ]
+
+    private static let germanFallback: [(String, String)] = [
+        ("Haus", "house"), ("Hund", "dog"), ("Katze", "cat"), ("Wasser", "water"), ("Freund", "friend"),
+        ("Buch", "book"), ("Stadt", "city"), ("Straße", "street"), ("Tür", "door"), ("Fenster", "window"),
+        ("Stuhl", "chair"), ("Auto", "car"), ("Musik", "music"), ("Geld", "money"), ("Sonne", "sun"),
+        ("Mond", "moon"), ("Meer", "sea"), ("Baum", "tree"), ("Brot", "bread"), ("Milch", "milk"),
+        ("Kaffee", "coffee"), ("Apfel", "apple"), ("Fisch", "fish"), ("Vogel", "bird"), ("Herz", "heart"),
+        ("Tag", "day"), ("Nacht", "night"), ("Jahr", "year"), ("Arbeit", "work"), ("Familie", "family"),
+        ("Liebe", "love"), ("Licht", "light"), ("Schlüssel", "key"), ("Feuer", "fire"), ("Regen", "rain"),
+        ("Himmel", "sky"), ("Wort", "word")
+    ]
+
+    private struct MyMemoryResponse: Decodable {
+        struct ResponseData: Decodable { let translatedText: String }
+        let responseData: ResponseData
+    }
+}
+
+// MARK: - Wellness (journaling) exercise
+
+struct WellnessPrompt: Equatable {
+    let text: String
+}
+
+/// Fetches a short reflection prompt from a free, no-key endpoint, with bundled journaling
+/// prompts as a fallback so the exercise always has content offline.
+enum WellnessPromptEngine {
+    static func prompt() async -> WellnessPrompt {
+        await fetchPrompt() ?? fallbackPrompt()
+    }
+
+    private static func fetchPrompt() async -> WellnessPrompt? {
+        guard let url = URL(string: "https://www.affirmations.dev/") else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+            let decoded = try JSONDecoder().decode(Affirmation.self, from: data)
+            let text = decoded.affirmation.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard text.count >= 8 else { return nil }
+            return WellnessPrompt(text: text)
+        } catch {
+            return nil
+        }
+    }
+
+    static func fallbackPrompt() -> WellnessPrompt {
+        fallbackPrompts.randomElement() ?? fallbackPrompts[0]
+    }
+
+    private static let fallbackPrompts: [WellnessPrompt] = [
+        WellnessPrompt(text: "Name one thing you're grateful for right now."),
+        WellnessPrompt(text: "What would make today feel like a good day?"),
+        WellnessPrompt(text: "What are you holding onto that you could let go of?"),
+        WellnessPrompt(text: "Where in your body do you feel tension? Soften it."),
+        WellnessPrompt(text: "What is one small thing you did well today?"),
+        WellnessPrompt(text: "Who or what made you smile recently?"),
+        WellnessPrompt(text: "What do you need more of in your life this week?"),
+        WellnessPrompt(text: "If you slowed down for a minute, what would you notice?"),
+        WellnessPrompt(text: "What's one kind thing you could do for yourself today?"),
+        WellnessPrompt(text: "What are you looking forward to?"),
+        WellnessPrompt(text: "What is taking up space in your mind? Set it down for now."),
+        WellnessPrompt(text: "What does rest look like for you right now?")
+    ]
+
+    private struct Affirmation: Decodable {
+        let affirmation: String
+    }
+}
+

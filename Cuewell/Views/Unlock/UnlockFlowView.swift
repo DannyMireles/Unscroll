@@ -22,10 +22,16 @@ struct UnlockFlowView: View {
                 PatternMemoryUnlockView(lock: lock, onComplete: onComplete)
             case .breathing:
                 BreathingUnlockView(lock: lock, onComplete: onComplete)
-            case .reflect:
-                ReflectUnlockView(lock: lock, onComplete: onComplete)
             case .read:
                 ReadUnlockView(lock: lock, onComplete: onComplete)
+            case .spanish:
+                LanguageUnlockView(lock: lock, language: .spanish, onComplete: onComplete)
+            case .french:
+                LanguageUnlockView(lock: lock, language: .french, onComplete: onComplete)
+            case .german:
+                LanguageUnlockView(lock: lock, language: .german, onComplete: onComplete)
+            case .journaling:
+                JournalingUnlockView(lock: lock, onComplete: onComplete)
             }
         }
     }

@@ -10,7 +10,9 @@ struct OnboardingView: View {
     @State private var ageText = ""
     @State private var selectedAppCategories: Set<LockedAppCategory> = []
     @State private var selectedDailyBucket: DailyHoursBucket?
-    @State private var selectedGoal: ReclaimGoal?
+    @State private var selectedCategories: Set<ExerciseCategory> = []
+    /// Persisted so the Add Lock screen can pre-select the user's chosen areas.
+    @AppStorage("preferredCategories") private var preferredCategoriesRaw = ""
     @FocusState private var focusedField: OnboardingField?
 
     private var projection: TimeProjection {
@@ -100,7 +102,7 @@ struct OnboardingView: View {
                 DailyTimeScreen(selectedBucket: $selectedDailyBucket)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             case .goal:
-                GoalScreen(selectedGoal: $selectedGoal)
+                CategoryScreen(selectedCategories: $selectedCategories)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             case .projection:
                 ProjectionScreen(
@@ -115,13 +117,10 @@ struct OnboardingView: View {
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             case .solution:
                 SolutionScreen(
-                    goal: selectedGoal ?? .mind,
+                    categories: selectedCategories,
                     permissionControls: { permissionControls }
                 )
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
-            case .softPath:
-                SoftPathScreen(permissionControls: { permissionControls })
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             case .setup:
                 SetupScreen(permissionControls: { permissionControls })
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -214,7 +213,7 @@ struct OnboardingView: View {
         case .welcome:
             return "Begin"
         case .goal:
-            return selectedGoal == .cope ? "Continue gently" : "See what's possible"
+            return "See what's possible"
         case .projection:
             return "Reclaim it"
         case .reclaim:
@@ -233,7 +232,7 @@ struct OnboardingView: View {
         case .dailyTime:
             return selectedDailyBucket == nil
         case .goal:
-            return selectedGoal == nil
+            return selectedCategories.isEmpty
         default:
             return false
         }
@@ -259,10 +258,8 @@ struct OnboardingView: View {
             return .projection
         case .solution:
             return .reclaim
-        case .softPath:
-            return .goal
         case .setup:
-            return selectedGoal == nil ? .welcome : .goal
+            return selectedCategories.isEmpty ? .welcome : .goal
         }
     }
 
@@ -311,12 +308,17 @@ struct OnboardingView: View {
             case .dailyTime:
                 step = .goal
             case .goal:
-                step = selectedGoal == .cope ? .softPath : .projection
+                // Remember the chosen areas so new locks pre-select them.
+                preferredCategoriesRaw = ExerciseCategory.allCases
+                    .filter { selectedCategories.contains($0) }
+                    .map(\.rawValue)
+                    .joined(separator: ",")
+                step = .projection
             case .projection:
                 step = .reclaim
             case .reclaim:
                 step = .solution
-            case .solution, .softPath, .setup:
+            case .solution, .setup:
                 break
             }
         }
@@ -515,25 +517,29 @@ private struct DailyTimeScreen: View {
     }
 }
 
-private struct GoalScreen: View {
-    @Binding var selectedGoal: ReclaimGoal?
+private struct CategoryScreen: View {
+    @Binding var selectedCategories: Set<ExerciseCategory>
 
     var body: some View {
         OnboardingScaffold {
             QuestionHeader(
-                title: "What would you rather do with that time?",
-                subtitle: "This shapes the next screen."
+                title: "Which of these will help you most?",
+                subtitle: "Pick the areas your unlocks should pull from — you can fine-tune per lock later."
             )
 
             VStack(spacing: 8) {
-                ForEach(ReclaimGoal.allCases) { goal in
+                ForEach(ExerciseCategory.allCases) { category in
                     SelectableRow(
-                        title: goal.title,
-                        subtitle: goal.subtitle,
-                        systemImage: goal.systemImage,
-                        isSelected: selectedGoal == goal
+                        title: category.title,
+                        subtitle: category.subtitle,
+                        systemImage: category.systemImage,
+                        isSelected: selectedCategories.contains(category)
                     ) {
-                        selectedGoal = goal
+                        if selectedCategories.contains(category) {
+                            selectedCategories.remove(category)
+                        } else {
+                            selectedCategories.insert(category)
+                        }
                     }
                 }
             }
@@ -640,8 +646,13 @@ private struct ReclaimScreen: View {
 }
 
 private struct SolutionScreen<PermissionControls: View>: View {
-    let goal: ReclaimGoal
+    let categories: Set<ExerciseCategory>
     @ViewBuilder var permissionControls: PermissionControls
+
+    /// The first selected area (canonical order) drives the headline + stat.
+    private var primary: ExerciseCategory {
+        ExerciseCategory.allCases.first { categories.contains($0) } ?? .mentalStimulation
+    }
 
     var body: some View {
         HeroLayout {
@@ -651,11 +662,11 @@ private struct SolutionScreen<PermissionControls: View>: View {
             VStack(spacing: 20) {
                 QuestionHeader(
                     title: solutionTitle,
-                    subtitle: goal.solutionCopy,
+                    subtitle: solutionCopy,
                     alignment: .center
                 )
 
-                StatCallout(goal: goal)
+                StatCallout(category: primary)
             }
             .flowItem(1)
         } footer: {
@@ -665,50 +676,24 @@ private struct SolutionScreen<PermissionControls: View>: View {
     }
 
     private var solutionTitle: String {
-        switch goal {
-        case .mind:
-            return "Build a sharper hour."
-        case .language:
-            return "Learn, one word at a time."
-        case .read:
-            return "Make room to read."
-        case .calm:
-            return "Come back to yourself."
-        case .cope:
-            return "Start softer."
+        switch primary {
+        case .mentalStimulation: return "Build a sharper hour."
+        case .reading: return "Make room to read."
+        case .language: return "Learn, one word at a time."
+        case .wellness: return "Come back to yourself."
         }
     }
-}
 
-private struct SoftPathScreen<PermissionControls: View>: View {
-    @ViewBuilder var permissionControls: PermissionControls
-
-    var body: some View {
-        HeroLayout {
-            Image(systemName: "hand.raised.fill")
-                .font(.system(size: 38, weight: .semibold))
-                .foregroundStyle(OnboardingPalette.accentText)
-                .frame(width: 72, height: 72)
-                .background(OnboardingPalette.cardFill, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
-                .flowItem(0)
-        } content: {
-            VStack(spacing: 20) {
-                QuestionHeader(
-                    title: "No numbers right now.",
-                    subtitle: "Phones are often how we switch off. No judgment. \(OnboardingConstants.appName) can be a gentle guardrail, not a verdict.",
-                    alignment: .center
-                )
-
-                Text("Start by setting one soft lock. You can adjust it later.")
-                    .font(AppTheme.Typography.bodyMedium)
-                    .foregroundStyle(OnboardingPalette.accentText)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .flowItem(1)
-        } footer: {
-            permissionControls
-                .flowItem(2)
+    private var solutionCopy: String {
+        switch primary {
+        case .mentalStimulation:
+            return "Turn the pause before an app into a quick mental rep — math or pattern memory."
+        case .reading:
+            return "Trade a reflexive scroll for one short, genuinely interesting read."
+        case .language:
+            return "A few protected minutes can become a new word in Spanish, French, or German."
+        case .wellness:
+            return "Swap a reflexive scroll for one breath or one quiet reflection."
         }
     }
 }
@@ -1063,17 +1048,17 @@ private struct ReclaimMetricRow: View {
 }
 
 private struct StatCallout: View {
-    let goal: ReclaimGoal
+    let category: ExerciseCategory
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: goal.calloutIcon)
+            Image(systemName: category.systemImage)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(OnboardingPalette.accentText)
                 .frame(width: 36, height: 36)
                 .background(OnboardingPalette.controlFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-            Text(goal.calloutCopy)
+            Text(calloutCopy)
                 .font(AppTheme.Typography.subheadline)
                 .foregroundStyle(.primary)
                 .lineSpacing(3)
@@ -1085,6 +1070,21 @@ private struct StatCallout: View {
         .overlay {
             RoundedRectangle(cornerRadius: AppTheme.cornerMedium, style: .continuous)
                 .stroke(OnboardingPalette.controlStroke, lineWidth: 1)
+        }
+    }
+
+    private var calloutCopy: String {
+        switch category {
+        case .mentalStimulation:
+            // Associational framing only (NEJM Evidence review of 22 studies on mental activity).
+            return "People who keep their minds active with puzzles and problem-solving tend to stay noticeably sharper as they age."
+        case .reading:
+            return "Reading even a little every day is linked with a richer vocabulary, stronger focus, and a calmer mind."
+        case .language:
+            return "Even a couple of minutes of language practice a day adds up — short, frequent reps are how vocabulary sticks."
+        case .wellness:
+            // Univ. of Bath & Southampton, BJHP (n=1,247). Framed as felt wellbeing, not treatment.
+            return "In a study of over 1,200 people, 10 minutes of daily mindfulness left people feeling calmer, and they still felt it a month later."
         }
     }
 }
@@ -1120,7 +1120,6 @@ private enum OnboardingStep: Equatable {
     case projection
     case reclaim
     case solution
-    case softPath
     case setup
 
     var showsInputProgress: Bool {
@@ -1134,7 +1133,7 @@ private enum OnboardingStep: Equatable {
 
     var canSkip: Bool {
         switch self {
-        case .solution, .softPath, .setup:
+        case .solution, .setup:
             return false
         default:
             return true
@@ -1143,7 +1142,7 @@ private enum OnboardingStep: Equatable {
 
     var usesPermissionControls: Bool {
         switch self {
-        case .solution, .softPath, .setup:
+        case .solution, .setup:
             return true
         default:
             return false
@@ -1255,110 +1254,6 @@ private struct DailyHoursBucket: Identifiable, Equatable {
     ]
 
     static let defaultBucket = DailyHoursBucket(label: "2-3 hours", value: 2.5, detail: "A real block")
-}
-
-private enum ReclaimGoal: String, CaseIterable, Identifiable {
-    case mind
-    case language
-    case read
-    case calm
-    case cope
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .mind:
-            return "Sharpen my mind"
-        case .language:
-            return "Learn a language"
-        case .read:
-            return "Read more"
-        case .calm:
-            return "Calm my mind"
-        case .cope:
-            return "I use it to switch off"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .mind:
-            return "Puzzles, math, memory"
-        case .language:
-            return "A new word at a time"
-        case .read:
-            return "Short, interesting reads"
-        case .calm:
-            return "Breathe and reset"
-        case .cope:
-            return "No pressure, softer path"
-        }
-    }
-
-    var systemImage: String {
-        switch self {
-        case .mind:
-            return "brain.head.profile"
-        case .language:
-            return "character.bubble.fill"
-        case .read:
-            return "book.fill"
-        case .calm:
-            return "wind"
-        case .cope:
-            return "moon.zzz.fill"
-        }
-    }
-
-    var calloutIcon: String {
-        switch self {
-        case .mind:
-            return "brain.head.profile"
-        case .language:
-            return "character.bubble.fill"
-        case .read:
-            return "book.fill"
-        case .calm:
-            return "wind"
-        case .cope:
-            return "heart.fill"
-        }
-    }
-
-    var solutionCopy: String {
-        switch self {
-        case .mind:
-            return "Use the pause to choose a quick challenge that makes the unlock feel earned."
-        case .language:
-            return "A few protected minutes can become a new Spanish word every time you reach for your phone."
-        case .read:
-            return "Trade a reflexive scroll for one short, genuinely interesting read."
-        case .calm:
-            return "Swap a reflexive scroll for one breath, one quiet reset."
-        case .cope:
-            return "The goal is support, not pressure."
-        }
-    }
-
-    var calloutCopy: String {
-        switch self {
-        case .mind:
-            // Support: NEJM Evidence review of 22 studies linked complex mental activity
-            // with sharper aging patterns. User-facing copy stays associational.
-            return "People who keep their minds active with puzzles, problem-solving, and new skills tend to stay noticeably sharper as they age."
-        case .language:
-            return "Even a couple of minutes of language practice a day adds up — short, frequent reps are how vocabulary actually sticks."
-        case .read:
-            return "Reading even a little every day is linked with a richer vocabulary, stronger focus, and a calmer mind."
-        case .calm:
-            // Source: Univ. of Bath and Southampton, BJHP, n=1,247.
-            // Frame as felt calmer/wellbeing, not treatment for anxiety or depression.
-            return "In a study of over 1,200 people, 10 minutes of daily mindfulness left people feeling calmer, and they still felt it a month later."
-        case .cope:
-            return "A lock can be gentle: one boundary, one breath, one chance to choose what helps next."
-        }
-    }
 }
 
 private struct TimeProjection: Equatable {

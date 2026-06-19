@@ -60,35 +60,40 @@ actor RestrictionEngine {
         await reapplyCurrentShields()
     }
 
-    /// Grants a single timed unlock window for one lock. This is the only mechanism
-    /// that controls "is this lock open right now"; the daily threshold itself never
-    /// changes and daily monitoring is never restarted here. That keeps each lock
-    /// independent (TikTok's unlock can't disturb YouTube's counter) and makes the
-    /// unlock feel instant.
+    /// Opens one lock by granting more *usage* rather than a stretch of wall-clock time.
+    ///
+    /// For incremental locks this arms a short-lived per-lock schedule whose threshold is a
+    /// *usage* amount, so the lock only re-shields after the user has actually used that much
+    /// more time — putting the phone down no longer burns the grant. The all-day limit
+    /// threshold is never touched, so each lock stays independent (one unlock can't disturb
+    /// another's counter) and the daily reset keeps working untouched.
     func grantTemporaryUnlock(for lock: AppLock) async {
         let now = Date()
         let isRestOfDay = lock.unlockRewardMode == .unlockedRestOfDay
-        let expiration: Date
-        if isRestOfDay {
-            expiration = Calendar.current.startOfDay(for: now).addingTimeInterval(24 * 60 * 60)
-        } else {
-            let grantedMinutes = AppConstants.grantedMinutes(for: lock.dailyLimitMinutes)
-            expiration = now.addingTimeInterval(TimeInterval(grantedMinutes * 60))
-        }
 
         RuntimeStateStore.update { state in
-            state.exceededLockIDs.insert(lock.id)
-            state.temporaryUnlocks[lock.id] = expiration
-            state.unlockGrantedAt[lock.id] = now
+            // Drop this lock's shield immediately.
+            state.exceededLockIDs.remove(lock.id)
             state.pendingUnlockLockID = nil
             state.pendingUnlockTriggered = false
             state.suppressNextPendingPrompt = false
+
+            if isRestOfDay {
+                let tomorrow = Calendar.current.startOfDay(for: now).addingTimeInterval(24 * 60 * 60)
+                state.temporaryUnlocks[lock.id] = tomorrow
+                state.unlockGrantedAt[lock.id] = now
+            } else {
+                state.temporaryUnlocks.removeValue(forKey: lock.id)
+                state.unlockGrantedAt[lock.id] = now
+            }
         }
 
-        // Rest-of-day windows are cleared by the end-of-day reset, so they don't need
-        // their own expiry schedule. Timed windows re-shield when the window closes.
-        if !isRestOfDay {
-            scheduleUnlockWindow(for: lock.id, until: expiration)
+        if isRestOfDay {
+            // No usage window needed; the rest-of-day flag keeps it open until the daily reset.
+            center.stopMonitoring([.unlockWindow(lock.id)])
+        } else {
+            let grantedMinutes = AppConstants.grantedMinutes(for: lock.dailyLimitMinutes)
+            scheduleUsageWindow(for: lock, minutes: grantedMinutes)
         }
         await reapplyCurrentShields()
     }
@@ -107,16 +112,34 @@ actor RestrictionEngine {
         return DateComponents(hour: minutes / 60, minute: minutes % 60)
     }
 
-    private func scheduleUnlockWindow(for lockID: UUID, until expiration: Date) {
+    /// Arms a usage-based grant window: a per-lock schedule running from now until end of day
+    /// whose single event fires after `minutes` of *additional usage*. When it fires, the
+    /// monitor extension re-shields the lock. The schedule is intentionally not registered
+    /// with `includesPastActivity`, so only usage that happens after the unlock counts.
+    private func scheduleUsageWindow(for lock: AppLock, minutes: Int) {
         let calendar = Calendar.current
+        let now = Date()
+        let endOfDay = DateComponents(hour: 23, minute: 59, second: 59)
         let schedule = DeviceActivitySchedule(
-            intervalStart: calendar.dateComponents([.hour, .minute, .second], from: Date()),
-            intervalEnd: calendar.dateComponents([.hour, .minute, .second], from: expiration),
+            intervalStart: calendar.dateComponents([.hour, .minute, .second], from: now),
+            intervalEnd: endOfDay,
             repeats: false
         )
 
+        let granted = max(1, minutes)
+        let event = DeviceActivityEvent(
+            applications: lock.selection.applicationTokens,
+            categories: lock.selection.categoryTokens,
+            webDomains: lock.selection.webDomainTokens,
+            threshold: DateComponents(hour: granted / 60, minute: granted % 60)
+        )
+
         do {
-            try center.startMonitoring(.unlockWindow(lockID), during: schedule)
+            try center.startMonitoring(
+                .unlockWindow(lock.id),
+                during: schedule,
+                events: [.lockThreshold(lock.id): event]
+            )
         } catch {
             return
         }

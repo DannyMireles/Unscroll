@@ -14,6 +14,7 @@ struct HomeView: View {
     @State private var isAddingLock = false
     @State private var showUpgradeSheet = false
     @State private var editingLock: AppLock?
+    @State private var infoLock: AppLock?
     @State private var showScreenTimeRequiredAlert = false
     @State private var unavailableLock: AppLock?
     @State private var linkSetupLock: AppLock?
@@ -129,6 +130,10 @@ struct HomeView: View {
         }
         .sheet(item: $editingLock) { lock in
             EditLockView(lock: lock)
+                .flowSheetPresentation()
+        }
+        .sheet(item: $infoLock) { lock in
+            LockInfoView(lock: lock)
                 .flowSheetPresentation()
         }
     }
@@ -254,6 +259,7 @@ struct HomeView: View {
             ForEach(Array(lockStore.locks.enumerated()), id: \.element.id) { index, lock in
                 LockCard(
                     lock: lock,
+                    onInfo: { infoLock = lock },
                     onEdit: { editingLock = lock },
                     onPause: { handlePauseToggle(for: lock) },
                     onDelete: { Task { await lockStore.delete(lock) } },
