@@ -1,5 +1,6 @@
 import DeviceActivity
 import Foundation
+import UserNotifications
 
 final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     /// iOS also calls this when `startMonitoring` begins mid-interval. Wiping runtime state here
@@ -34,7 +35,6 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
         RuntimeStateStore.save(UnlockRuntimeState())
         ScreenTimeShieldStore.clearAllShields()
-        ShieldNotifyFlag.clear()
     }
 
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
@@ -50,13 +50,39 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         }
         guard let lockID else { return }
 
+        var didMarkExceeded = false
         RuntimeStateStore.update { state in
             guard !state.hasActiveUnlock(for: lockID) else { return }
             state.exceededLockIDs.insert(lockID)
             state.temporaryUnlocks.removeValue(forKey: lockID)
             state.unlockGrantedAt.removeValue(forKey: lockID)
+            didMarkExceeded = true
         }
-        ShieldNotifyFlag.arm()
+        if didMarkExceeded {
+            scheduleLimitReachedNotification(for: lockID)
+        }
         ScreenTimeShieldStore.shieldApplications(for: SharedLockFileStore.load())
+    }
+
+    private func scheduleLimitReachedNotification(for lockID: UUID) {
+        let content = UNMutableNotificationContent()
+        content.title = "Cuewell activity ready"
+        content.body = "A locked app reached its limit. Tap to start your unlock activity."
+        content.sound = .default
+        content.userInfo = ["deeplink": "cuewell://unlock?id=\(lockID.uuidString)"]
+
+        let request = UNNotificationRequest(
+            identifier: "cuewell.limit.\(lockID.uuidString).\(UUID().uuidString)",
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1.0, repeats: false)
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                NSLog("Cuewell limit notification failed: %@", String(describing: error))
+            } else {
+                NSLog("Cuewell limit notification scheduled for lock=%@", lockID.uuidString)
+            }
+        }
     }
 }

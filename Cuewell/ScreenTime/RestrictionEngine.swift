@@ -2,12 +2,78 @@ import DeviceActivity
 import FamilyControls
 import Foundation
 
+enum ScreenTimeMonitoringError: LocalizedError {
+    case dailyMonitoringFailed(underlying: Error)
+    case unlockWindowMonitoringFailed(lockName: String, underlying: Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .dailyMonitoringFailed:
+            return "Cuewell could not start Screen Time monitoring."
+        case .unlockWindowMonitoringFailed(let lockName, _):
+            return "Cuewell could not unlock \(displayName(lockName))."
+        }
+    }
+
+    var recoverySuggestion: String? {
+        "Open Settings > Screen Time and confirm Cuewell is allowed, then reopen Cuewell."
+    }
+
+    var userFacingMessage: String {
+        switch self {
+        case .dailyMonitoringFailed:
+            return "Cuewell could not start Screen Time monitoring. Open Settings > Screen Time and confirm Cuewell is allowed, then reopen Cuewell."
+        case .unlockWindowMonitoringFailed(let lockName, _):
+            return "Cuewell could not safely start the next \(displayName(lockName)) unlock window, so the lock stayed on. Open Settings > Screen Time and confirm Cuewell is allowed, then try again."
+        }
+    }
+
+    var likelyNeedsScreenTimeAccessRefresh: Bool {
+        guard let underlying else { return false }
+        let description = "\(underlying) \((underlying as NSError).localizedDescription)"
+            .lowercased()
+        return description.contains("authoriz")
+            || description.contains("permission")
+            || description.contains("entitlement")
+            || description.contains("denied")
+            || description.contains("family")
+    }
+
+    private var underlying: Error? {
+        switch self {
+        case .dailyMonitoringFailed(let error),
+             .unlockWindowMonitoringFailed(_, let error):
+            return error
+        }
+    }
+
+    private func displayName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty || isGenericDisplayName(trimmed) ? "app" : trimmed
+    }
+
+    private func isGenericDisplayName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if ["app", "chosen app", "selected app", "selected apps", "no selection"].contains(trimmed) {
+            return true
+        }
+
+        let parts = trimmed.split(separator: " ")
+        if parts.count == 2,
+           Int(parts[0]) != nil,
+           ["app", "apps", "item", "items"].contains(String(parts[1])) {
+            return true
+        }
+        return false
+    }
+}
+
 actor RestrictionEngine {
     static let shared = RestrictionEngine()
 
     private let center = DeviceActivityCenter()
 
-    func configureMonitoring(for locks: [AppLock]) async {
+    func configureMonitoring(for locks: [AppLock]) async throws {
         let activeLocks = locks.filter { !$0.isPaused && $0.hasSelection }
         guard !activeLocks.isEmpty else {
             center.stopMonitoring([.cuewellDaily])
@@ -45,7 +111,8 @@ actor RestrictionEngine {
         do {
             try center.startMonitoring(.cuewellDaily, during: schedule, events: events)
         } catch {
-            return
+            NSLog("Cuewell Screen Time daily monitoring failed: %@", String(describing: error))
+            throw ScreenTimeMonitoringError.dailyMonitoringFailed(underlying: error)
         }
     }
 
@@ -67,12 +134,22 @@ actor RestrictionEngine {
     /// more time — putting the phone down no longer burns the grant. The all-day limit
     /// threshold is never touched, so each lock stays independent (one unlock can't disturb
     /// another's counter) and the daily reset keeps working untouched.
-    func grantTemporaryUnlock(for lock: AppLock) async {
+    func grantTemporaryUnlock(for lock: AppLock) async throws {
         let now = Date()
         let isRestOfDay = lock.unlockRewardMode == .unlockedRestOfDay
 
+        if !isRestOfDay {
+            let grantedMinutes = AppConstants.grantedMinutes(for: lock.dailyLimitMinutes)
+            do {
+                try scheduleUsageWindow(for: lock, minutes: grantedMinutes)
+            } catch {
+                await reapplyCurrentShields()
+                throw error
+            }
+        }
+
         RuntimeStateStore.update { state in
-            // Drop this lock's shield immediately.
+            // Drop this lock's shield only after the next enforcement point is armed.
             state.exceededLockIDs.remove(lock.id)
             state.pendingUnlockLockID = nil
             state.pendingUnlockTriggered = false
@@ -91,9 +168,6 @@ actor RestrictionEngine {
         if isRestOfDay {
             // No usage window needed; the rest-of-day flag keeps it open until the daily reset.
             center.stopMonitoring([.unlockWindow(lock.id)])
-        } else {
-            let grantedMinutes = AppConstants.grantedMinutes(for: lock.dailyLimitMinutes)
-            scheduleUsageWindow(for: lock, minutes: grantedMinutes)
         }
         await reapplyCurrentShields()
     }
@@ -116,7 +190,7 @@ actor RestrictionEngine {
     /// whose single event fires after `minutes` of *additional usage*. When it fires, the
     /// monitor extension re-shields the lock. The schedule is intentionally not registered
     /// with `includesPastActivity`, so only usage that happens after the unlock counts.
-    private func scheduleUsageWindow(for lock: AppLock, minutes: Int) {
+    private func scheduleUsageWindow(for lock: AppLock, minutes: Int) throws {
         let calendar = Calendar.current
         let now = Date()
         let endOfDay = DateComponents(hour: 23, minute: 59, second: 59)
@@ -135,13 +209,18 @@ actor RestrictionEngine {
         )
 
         do {
+            center.stopMonitoring([.unlockWindow(lock.id)])
             try center.startMonitoring(
                 .unlockWindow(lock.id),
                 during: schedule,
                 events: [.lockThreshold(lock.id): event]
             )
         } catch {
-            return
+            NSLog("Cuewell Screen Time unlock window failed: %@", String(describing: error))
+            throw ScreenTimeMonitoringError.unlockWindowMonitoringFailed(
+                lockName: lock.appDisplayName,
+                underlying: error
+            )
         }
     }
 }

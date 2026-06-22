@@ -43,7 +43,12 @@ struct UnlockRuntimeState: Codable, Equatable {
     /// without the usage limit being reached again.
     mutating func resetForNewDayIfNeeded(now: Date = Date()) -> Bool {
         let today = Calendar.current.startOfDay(for: now)
-        guard dayStart != today else { return false }
+        guard let storedDayStart = dayStart else {
+            dayStart = today
+            return true
+        }
+
+        guard storedDayStart != today else { return false }
 
         exceededLockIDs = []
         temporaryUnlocks = [:]

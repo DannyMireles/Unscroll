@@ -294,6 +294,14 @@ struct AddLockView: View {
                 Text(totalMinutes > 0 ? "\(limitLabel) of daily use before a challenge" : "Choose at least 1 minute")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+
+                if #unavailable(iOS 17.4) {
+                    Text("On this iOS version, a new lock starts counting from the moment it is created today.")
+                        .font(AppTheme.Typography.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .glassCard(padding: 14)
         }

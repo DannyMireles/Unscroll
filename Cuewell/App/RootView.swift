@@ -16,6 +16,7 @@ struct RootView: View {
     @State private var completedLock: AppLock?
     @State private var unavailableLock: AppLock?
     @State private var linkSetupLock: AppLock?
+    @State private var unlockErrorMessage: String?
     @State private var isPreparingOpenApp = false
     @State private var identityReportRefreshID = 0
 
@@ -62,24 +63,44 @@ struct RootView: View {
                 .transition(.flowPopup)
                 .zIndex(12)
             }
+
+            if let unlockErrorMessage {
+                GlassNoticeOverlay(
+                    title: "Unlock Not Applied",
+                    message: unlockErrorMessage
+                ) {
+                    withAnimation(AppTheme.Motion.popup) {
+                        self.unlockErrorMessage = nil
+                    }
+                }
+                .transition(.flowPopup)
+                .zIndex(13)
+            }
         }
         .dismissKeyboardOnBackgroundTap()
         .animation(AppTheme.Motion.popup, value: showSuccessAlert)
         .animation(AppTheme.Motion.popup, value: linkSetupLock?.id)
         .animation(AppTheme.Motion.popup, value: unavailableLock?.id)
+        .animation(AppTheme.Motion.popup, value: unlockErrorMessage)
         .sheet(item: $unlockCoordinator.activeLock) { lock in
             UnlockFlowView(lock: lock) {
                 Task {
-                    let granted = await unlockCoordinator.completeUnlock(for: lock)
-                    await lockStore.load()
-                    lockStore.reconcileDisplayNames()
-                    grantedMinutes = granted
-                    completedLock = lockStore.locks.first(where: { $0.id == lock.id }) ?? lock
-                    Haptics.celebrationDing()
-                    withAnimation(AppTheme.Motion.popup) {
-                        showSuccessAlert = true
+                    do {
+                        let granted = try await unlockCoordinator.completeUnlock(for: lock)
+                        await lockStore.load()
+                        await lockStore.refreshScreenTimeStatus()
+                        lockStore.reconcileDisplayNames()
+                        grantedMinutes = granted
+                        completedLock = lockStore.locks.first(where: { $0.id == lock.id }) ?? lock
+                        Haptics.celebrationDing()
+                        withAnimation(AppTheme.Motion.popup) {
+                            showSuccessAlert = true
+                        }
+                        triggerSuccessConfetti()
+                    } catch {
+                        unlockErrorMessage = unlockCoordinator.lastUnlockErrorMessage
+                            ?? "Cuewell could not safely apply this unlock, so the lock stayed on."
                     }
-                    triggerSuccessConfetti()
                 }
             }
             .interactiveDismissDisabled()

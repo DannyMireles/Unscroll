@@ -29,7 +29,7 @@ struct CuewellApp: App {
                     if permissionManager.canEnterApp && !lockStore.locks.isEmpty {
                         await requestNotificationPermissionIfNeeded()
                     }
-                    await RestrictionEngine.shared.configureMonitoring(for: lockStore.locks)
+                    await lockStore.refreshScreenTimeStatus()
                     unlockCoordinator.consumePendingUnlock()
                 }
                 .onChange(of: scenePhase) { newPhase in
@@ -38,12 +38,16 @@ struct CuewellApp: App {
                         await permissionManager.refreshStatus(reason: "scene active")
                         await purchaseManager.refreshCustomerInfo()
                         await purchaseManager.refreshOfferings()
-                        await RestrictionEngine.shared.reapplyCurrentShields()
                         await lockStore.load()
+                        await lockStore.refreshScreenTimeStatus()
                         unlockCoordinator.processPendingDeepLink(locks: lockStore.locks)
                         unlockCoordinator.refreshStats()
                         unlockCoordinator.consumePendingUnlock()
                     }
+                }
+                .onChange(of: lockStore.screenTimeAccessNeedsRenewal) { needsRenewal in
+                    guard needsRenewal else { return }
+                    permissionManager.markScreenTimeAccessNeedsRenewal(message: lockStore.lastErrorMessage)
                 }
                 .onOpenURL { url in
                     unlockCoordinator.handle(url: url, locks: lockStore.locks)

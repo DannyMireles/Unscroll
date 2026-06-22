@@ -6,6 +6,7 @@ import ManagedSettings
 final class LockStore: ObservableObject {
     @Published private(set) var locks: [AppLock] = []
     @Published var lastErrorMessage: String?
+    @Published private(set) var screenTimeAccessNeedsRenewal = false
 
     func load() async {
         locks = SharedLockFileStore.load()
@@ -157,12 +158,39 @@ final class LockStore: ObservableObject {
     private func persistAndRefreshScreenTime() async {
         do {
             try SharedLockFileStore.save(locks)
-            lastErrorMessage = nil
-            await RestrictionEngine.shared.configureMonitoring(for: locks)
-            await RestrictionEngine.shared.reapplyCurrentShields()
         } catch {
             lastErrorMessage = "Your lock changes could not be saved."
+            screenTimeAccessNeedsRenewal = false
+            return
         }
+
+        await refreshScreenTimeStatus()
+    }
+
+    func refreshScreenTimeStatus() async {
+        do {
+            try await RestrictionEngine.shared.configureMonitoring(for: locks)
+            await RestrictionEngine.shared.reapplyCurrentShields()
+            lastErrorMessage = nil
+            screenTimeAccessNeedsRenewal = false
+        } catch {
+            lastErrorMessage = Self.screenTimeMessage(for: error)
+            screenTimeAccessNeedsRenewal = Self.needsScreenTimeAccessRenewal(error)
+        }
+    }
+
+    private static func screenTimeMessage(for error: Error) -> String {
+        if let monitoringError = error as? ScreenTimeMonitoringError {
+            return monitoringError.userFacingMessage
+        }
+        return "Cuewell could not refresh Screen Time monitoring. Open Settings > Screen Time and confirm Cuewell is allowed, then reopen Cuewell."
+    }
+
+    private static func needsScreenTimeAccessRenewal(_ error: Error) -> Bool {
+        guard let monitoringError = error as? ScreenTimeMonitoringError else {
+            return false
+        }
+        return monitoringError.likelyNeedsScreenTimeAccessRefresh
     }
 
     static func normalizeScheme(_ raw: String?) -> String? {

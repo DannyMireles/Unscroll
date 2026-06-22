@@ -6,6 +6,7 @@ final class UnlockCoordinator: ObservableObject {
     @Published var stats: DailyStats = DailyStatsStore.load()
 
     private var pendingDeepLinkURL: URL?
+    private(set) var lastUnlockErrorMessage: String?
 
     func handle(url: URL, locks: [AppLock]) {
         guard url.scheme == AppConstants.urlScheme else { return }
@@ -172,13 +173,29 @@ final class UnlockCoordinator: ObservableObject {
         }
     }
 
-    func completeUnlock(for lock: AppLock) async -> Int {
+    func completeUnlock(for lock: AppLock) async throws -> Int {
+        let granted = AppConstants.grantedMinutes(for: lock.dailyLimitMinutes)
+        do {
+            try await RestrictionEngine.shared.grantTemporaryUnlock(for: lock)
+        } catch {
+            lastUnlockErrorMessage = Self.unlockMessage(for: error)
+            activeLock = nil
+            Haptics.retry()
+            throw error
+        }
+
         Haptics.success()
         activeLock = nil
-        await RestrictionEngine.shared.grantTemporaryUnlock(for: lock)
-        let granted = AppConstants.grantedMinutes(for: lock.dailyLimitMinutes)
+        lastUnlockErrorMessage = nil
         stats = DailyStatsStore.recordSession(minutes: granted)
         return granted
+    }
+
+    private static func unlockMessage(for error: Error) -> String {
+        if let monitoringError = error as? ScreenTimeMonitoringError {
+            return monitoringError.userFacingMessage
+        }
+        return "Cuewell could not safely apply this unlock, so the lock stayed on. Open Settings > Screen Time and confirm Cuewell is allowed, then try again."
     }
 
     func refreshStats() {

@@ -177,6 +177,14 @@ struct EditLockView: View {
                      : "Choose at least 1 minute")
                     .font(AppTheme.Typography.footnoteMedium)
                     .foregroundStyle(.secondary)
+
+                if #unavailable(iOS 17.4) {
+                    Text("On this iOS version, changes start counting from the moment you save them today.")
+                        .font(AppTheme.Typography.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .glassCard(padding: 14)
         }

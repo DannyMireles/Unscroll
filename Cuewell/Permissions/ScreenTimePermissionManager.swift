@@ -59,6 +59,12 @@ final class ScreenTimePermissionManager: ObservableObject {
         apply(status: AuthorizationCenter.shared.authorizationStatus)
     }
 
+    func markScreenTimeAccessNeedsRenewal(message: String?) {
+        authorizedOnce = false
+        status = AuthorizationCenter.shared.authorizationStatus
+        permissionErrorMessage = message ?? recoveryMessage
+    }
+
     func requestAuthorization() async {
         guard !isRequesting else { return }
 

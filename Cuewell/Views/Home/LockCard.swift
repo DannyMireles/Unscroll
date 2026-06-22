@@ -181,6 +181,13 @@ struct LockInfoView: View {
                 Text("Counted while you're actually using the app — not while it sits idle.")
                     .font(AppTheme.Typography.caption)
                     .foregroundStyle(.secondary)
+
+                if #unavailable(iOS 17.4) {
+                    Text("On this iOS version, today's count starts when the lock is created or edited.")
+                        .font(AppTheme.Typography.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .glassCard(padding: 16)
         }
