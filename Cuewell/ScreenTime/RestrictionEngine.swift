@@ -76,8 +76,23 @@ actor RestrictionEngine {
     func configureMonitoring(for locks: [AppLock]) async throws {
         let activeLocks = locks.filter { !$0.isPaused && $0.hasSelection }
         guard !activeLocks.isEmpty else {
-            center.stopMonitoring([.cuewellDaily])
+            if center.activities.contains(.cuewellDaily) {
+                center.stopMonitoring([.cuewellDaily])
+            }
+            DailyMonitorConfig.clear()
             ScreenTimeShieldStore.clearAllShields()
+            return
+        }
+
+        // Re-arming the daily schedule restarts its interval, which zeroes the
+        // accumulated usage the thresholds count against. Doing that on every app
+        // launch/foreground meant the usage limit was never reached, so apps were
+        // never shielded. The OS keeps monitoring even while the app is closed, so
+        // only (re)start when the configuration actually changed — otherwise leave
+        // the existing monitor running untouched.
+        let signature = DailyMonitorConfig.signature(for: activeLocks)
+        if center.activities.contains(.cuewellDaily),
+           DailyMonitorConfig.stored() == signature {
             return
         }
 
@@ -110,7 +125,9 @@ actor RestrictionEngine {
 
         do {
             try center.startMonitoring(.cuewellDaily, during: schedule, events: events)
+            DailyMonitorConfig.save(signature)
         } catch {
+            DailyMonitorConfig.clear()
             NSLog("Cuewell Screen Time daily monitoring failed: %@", String(describing: error))
             throw ScreenTimeMonitoringError.dailyMonitoringFailed(underlying: error)
         }
@@ -222,5 +239,43 @@ actor RestrictionEngine {
                 underlying: error
             )
         }
+    }
+}
+
+/// Tracks the configuration the daily Screen Time monitor was last armed with, so the
+/// engine can avoid needlessly restarting it. Restarting resets the usage counters the
+/// limit thresholds depend on, which previously kept apps from ever being shielded.
+///
+/// The signature deliberately keys off each active lock's `updatedAt` rather than the
+/// opaque `FamilyActivitySelection`, whose encoding isn't guaranteed to be byte-stable
+/// across runs. Every mutation that changes what the monitor should watch (add, edit,
+/// limit change, pause/unpause, delete) bumps `updatedAt` or changes the active-lock set,
+/// so the signature changes exactly when — and only when — a real re-arm is required.
+enum DailyMonitorConfig {
+    private static let key = "cuewell.dailyMonitor.signature"
+
+    private struct Entry: Codable {
+        let id: UUID
+        let limit: Int
+        let updatedAt: Date
+    }
+
+    static func signature(for activeLocks: [AppLock]) -> Data {
+        let entries = activeLocks
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+            .map { Entry(id: $0.id, limit: max(1, $0.dailyLimitMinutes), updatedAt: $0.updatedAt) }
+        return (try? JSONEncoder().encode(entries)) ?? Data()
+    }
+
+    static func stored() -> Data? {
+        UserDefaults.standard.data(forKey: key)
+    }
+
+    static func save(_ data: Data) {
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
     }
 }
