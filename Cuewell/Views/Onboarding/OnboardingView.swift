@@ -10,9 +10,10 @@ struct OnboardingView: View {
     @State private var ageText = ""
     @State private var selectedAppCategories: Set<LockedAppCategory> = []
     @State private var selectedDailyBucket: DailyHoursBucket?
-    @State private var selectedCategories: Set<ExerciseCategory> = []
-    /// Persisted so the Add Lock screen can pre-select the user's chosen areas.
-    @AppStorage("preferredCategories") private var preferredCategoriesRaw = ""
+    @State private var selectedActivities: Set<UnlockMethod> = []
+    @State private var selectedReadingTopics: Set<ReadingTopic> = []
+    /// Persisted so the Add Lock screen can pre-select the user's chosen activities.
+    @AppStorage("preferredMethods") private var preferredMethodsRaw = ""
     @FocusState private var focusedField: OnboardingField?
 
     private var projection: TimeProjection {
@@ -102,7 +103,7 @@ struct OnboardingView: View {
                 DailyTimeScreen(selectedBucket: $selectedDailyBucket)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             case .goal:
-                CategoryScreen(selectedCategories: $selectedCategories)
+                ActivityScreen(selectedActivities: $selectedActivities, selectedTopics: $selectedReadingTopics)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             case .projection:
                 ProjectionScreen(
@@ -117,7 +118,7 @@ struct OnboardingView: View {
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             case .solution:
                 SolutionScreen(
-                    categories: selectedCategories,
+                    activities: selectedActivities,
                     permissionControls: { permissionControls }
                 )
                 .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -232,7 +233,10 @@ struct OnboardingView: View {
         case .dailyTime:
             return selectedDailyBucket == nil
         case .goal:
-            return selectedCategories.isEmpty
+            if selectedActivities.isEmpty { return true }
+            // If they want to read, make them pick at least one topic so the feed is relevant.
+            if selectedActivities.contains(.read) && selectedReadingTopics.isEmpty { return true }
+            return false
         default:
             return false
         }
@@ -259,7 +263,7 @@ struct OnboardingView: View {
         case .solution:
             return .reclaim
         case .setup:
-            return selectedCategories.isEmpty ? .welcome : .goal
+            return selectedActivities.isEmpty ? .welcome : .goal
         }
     }
 
@@ -308,11 +312,13 @@ struct OnboardingView: View {
             case .dailyTime:
                 step = .goal
             case .goal:
-                // Remember the chosen areas so new locks pre-select them.
-                preferredCategoriesRaw = ExerciseCategory.allCases
-                    .filter { selectedCategories.contains($0) }
+                // Remember the chosen activities so new locks pre-select them, and store the
+                // reading topics so the Read activity pulls relevant articles.
+                preferredMethodsRaw = UnlockMethod.allSelectable
+                    .filter { selectedActivities.contains($0) }
                     .map(\.rawValue)
                     .joined(separator: ",")
+                ReadingPreferencesStore.save(selectedReadingTopics)
                 step = .projection
             case .projection:
                 step = .reclaim
@@ -517,34 +523,96 @@ private struct DailyTimeScreen: View {
     }
 }
 
-private struct CategoryScreen: View {
-    @Binding var selectedCategories: Set<ExerciseCategory>
+private struct ActivityScreen: View {
+    @Binding var selectedActivities: Set<UnlockMethod>
+    @Binding var selectedTopics: Set<ReadingTopic>
+
+    private let topicColumns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
 
     var body: some View {
         OnboardingScaffold {
             QuestionHeader(
-                title: "Which of these will help you most?",
-                subtitle: "Pick the areas your unlocks should pull from — you can fine-tune per lock later."
+                title: "How do you want to earn your time back?",
+                subtitle: "Pick the activities your unlocks should offer. You can fine-tune per lock later."
             )
 
             VStack(spacing: 8) {
-                ForEach(ExerciseCategory.allCases) { category in
+                ForEach(UnlockMethod.allSelectable) { method in
                     SelectableRow(
-                        title: category.title,
-                        subtitle: category.subtitle,
-                        systemImage: category.systemImage,
-                        isSelected: selectedCategories.contains(category)
+                        title: method.title,
+                        subtitle: method.tagline,
+                        systemImage: method.systemImage,
+                        isSelected: selectedActivities.contains(method)
                     ) {
-                        if selectedCategories.contains(category) {
-                            selectedCategories.remove(category)
+                        if selectedActivities.contains(method) {
+                            selectedActivities.remove(method)
                         } else {
-                            selectedCategories.insert(category)
+                            selectedActivities.insert(method)
                         }
                     }
                 }
             }
             .flowItem(1)
+
+            if selectedActivities.contains(.read) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("What do you like to read about?")
+                        .font(AppTheme.Typography.headlineMedium)
+                        .foregroundStyle(.primary)
+                    Text("We'll pull a fresh article from these each day.")
+                        .font(AppTheme.Typography.caption)
+                        .foregroundStyle(OnboardingPalette.secondaryText)
+
+                    LazyVGrid(columns: topicColumns, alignment: .leading, spacing: 8) {
+                        ForEach(ReadingTopic.allCases) { topic in
+                            TopicChip(topic: topic, isSelected: selectedTopics.contains(topic)) {
+                                if selectedTopics.contains(topic) {
+                                    selectedTopics.remove(topic)
+                                } else {
+                                    selectedTopics.insert(topic)
+                                }
+                            }
+                        }
+                    }
+                }
+                .flowItem(2)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
+        .animation(AppTheme.Motion.page, value: selectedActivities.contains(.read))
+    }
+}
+
+private struct TopicChip: View {
+    let topic: ReadingTopic
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            Haptics.softTap()
+            action()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: topic.systemImage)
+                    .font(.caption.weight(.semibold))
+                Text(topic.title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundStyle(isSelected ? Color.white : OnboardingPalette.accentText)
+            .frame(maxWidth: .infinity, minHeight: 38)
+            .padding(.horizontal, 10)
+            .background(
+                isSelected
+                    ? AnyShapeStyle(LinearGradient(colors: [AppTheme.accent, AppTheme.accentDeep], startPoint: .top, endPoint: .bottom))
+                    : AnyShapeStyle(OnboardingPalette.controlFill),
+                in: Capsule()
+            )
+            .overlay { Capsule().stroke(OnboardingPalette.controlStroke, lineWidth: isSelected ? 0 : 1) }
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -591,7 +659,7 @@ private struct ProjectionScreen: View {
 
             GoodNewsCallout(
                 text: isLightUser
-                    ? "You're already keeping this contained — that time is yours, and worth protecting."
+                    ? "You're already keeping this contained, and that time is yours, worth protecting."
                     : "That time is still yours to spend. Cuewell turns the scroll into minutes you'll actually feel."
             )
             .flowItem(1)
@@ -646,12 +714,12 @@ private struct ReclaimScreen: View {
 }
 
 private struct SolutionScreen<PermissionControls: View>: View {
-    let categories: Set<ExerciseCategory>
+    let activities: Set<UnlockMethod>
     @ViewBuilder var permissionControls: PermissionControls
 
-    /// The first selected area (canonical order) drives the headline + stat.
-    private var primary: ExerciseCategory {
-        ExerciseCategory.allCases.first { categories.contains($0) } ?? .mentalStimulation
+    /// The first selected activity (canonical order) drives the headline + stat.
+    private var primary: UnlockMethod {
+        UnlockMethod.allSelectable.first { activities.contains($0) } ?? .read
     }
 
     var body: some View {
@@ -666,7 +734,7 @@ private struct SolutionScreen<PermissionControls: View>: View {
                     alignment: .center
                 )
 
-                StatCallout(category: primary)
+                StatCallout(method: primary)
             }
             .flowItem(1)
         } footer: {
@@ -677,23 +745,23 @@ private struct SolutionScreen<PermissionControls: View>: View {
 
     private var solutionTitle: String {
         switch primary {
-        case .mentalStimulation: return "Build a sharper hour."
-        case .reading: return "Make room to read."
-        case .language: return "Learn, one word at a time."
-        case .wellness: return "Come back to yourself."
+        case .read: return "Make room to read."
+        case .mindful: return "Come back to yourself."
+        case .outside: return "Get out the door."
+        case .pattern: return "Build a sharper hour."
         }
     }
 
     private var solutionCopy: String {
         switch primary {
-        case .mentalStimulation:
-            return "Turn the pause before an app into a quick mental rep — math or pattern memory."
-        case .reading:
-            return "Trade a reflexive scroll for one short, genuinely interesting read."
-        case .language:
-            return "A few protected minutes can become a new word in Spanish, French, or German."
-        case .wellness:
-            return "Swap a reflexive scroll for one breath or one quiet reflection."
+        case .read:
+            return "Trade a reflexive scroll for one short, genuinely interesting read on a topic you love."
+        case .mindful:
+            return "Swap a reflexive scroll for a few quiet minutes: a short guided meditation or breath."
+        case .outside:
+            return "Turn the urge to scroll into a reason to step outside and look up."
+        case .pattern:
+            return "Turn the pause before an app into a quick mental rep you have to focus for."
         }
     }
 }
@@ -1048,11 +1116,11 @@ private struct ReclaimMetricRow: View {
 }
 
 private struct StatCallout: View {
-    let category: ExerciseCategory
+    let method: UnlockMethod
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: category.systemImage)
+            Image(systemName: method.systemImage)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(OnboardingPalette.accentText)
                 .frame(width: 36, height: 36)
@@ -1074,17 +1142,17 @@ private struct StatCallout: View {
     }
 
     private var calloutCopy: String {
-        switch category {
-        case .mentalStimulation:
-            // Associational framing only (NEJM Evidence review of 22 studies on mental activity).
-            return "People who keep their minds active with puzzles and problem-solving tend to stay noticeably sharper as they age."
-        case .reading:
+        switch method {
+        case .read:
             return "Reading even a little every day is linked with a richer vocabulary, stronger focus, and a calmer mind."
-        case .language:
-            return "Even a couple of minutes of language practice a day adds up — short, frequent reps are how vocabulary sticks."
-        case .wellness:
+        case .mindful:
             // Univ. of Bath & Southampton, BJHP (n=1,247). Framed as felt wellbeing, not treatment.
             return "In a study of over 1,200 people, 10 minutes of daily mindfulness left people feeling calmer, and they still felt it a month later."
+        case .outside:
+            return "Just a few minutes outside, especially around greenery, is linked with lower stress and a brighter mood."
+        case .pattern:
+            // Associational framing only (NEJM Evidence review of 22 studies on mental activity).
+            return "People who keep their minds active with memory and problem-solving tend to stay noticeably sharper as they age."
         }
     }
 }

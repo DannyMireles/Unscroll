@@ -84,7 +84,7 @@ struct PatternMemoryUnlockView: View {
             Haptics.retry()
             userInput = []
             // Re-show the correct pattern so they can see the right order before retrying.
-            Task { await playSequence(intro: "Not quite — watch the correct pattern.") }
+            Task { await playSequence(intro: "Not quite. Watch the correct pattern.") }
             return
         }
 

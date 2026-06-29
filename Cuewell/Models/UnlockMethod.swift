@@ -1,124 +1,112 @@
 import Foundation
 
-/// A single unlock exercise (the "leaf"). Grouped into categories via `ExerciseCategory`.
-/// A lock stores one or more of these; one is picked at random per unlock
-/// (see `AppLock.resolvedForUnlock()`).
+/// A single unlock activity. A lock stores one or more of these; when the lock is over its
+/// limit the user completes one to earn more time. With more than one selected, the user
+/// picks which to do at unlock time (see `ActivityChooserView`) rather than getting a random
+/// one — the activities are now very different (e.g. "Go Outside" can't be forced at night).
 enum UnlockMethod: String, Codable, CaseIterable, Identifiable {
-    case mentalMath
-    case patternMemory
+    /// Read a fresh, hand-picked article on a topic the user chose (links out).
     case read
-    // Raw value kept as "reflect" so locks created before the rename still decode.
-    case spanish = "reflect"
-    case french
-    case german
-    case breathing
-    case journaling
+    /// A short free guided meditation or breathwork session (links out).
+    case mindful
+    /// Step outside and submit a photo, verified on-device.
+    case outside
+    /// Watch-and-repeat a short pattern on a grid. Raw value kept as "patternMemory" so
+    /// locks created before the redesign still decode.
+    case pattern = "patternMemory"
 
     var id: String { rawValue }
 
-    /// Everything selectable, ordered by category for the grouped picker.
-    static let allSelectable: [UnlockMethod] = ExerciseCategory.allCases.flatMap { $0.exercises }
-
-    var category: ExerciseCategory {
-        switch self {
-        case .mentalMath, .patternMemory: return .mentalStimulation
-        case .read: return .reading
-        case .spanish, .french, .german: return .language
-        case .breathing, .journaling: return .wellness
-        }
-    }
+    /// Everything a user can pick, in display order.
+    static let allSelectable: [UnlockMethod] = allCases
 
     var title: String {
         switch self {
-        case .mentalMath: return "Mental Math"
-        case .patternMemory: return "Pattern Memory"
-        case .read: return "Read Something"
-        case .spanish: return "Spanish"
-        case .french: return "French"
-        case .german: return "German"
-        case .breathing: return "Guided Breathing"
-        case .journaling: return "Journaling"
+        case .read: return "Read"
+        case .mindful: return "Mindfulness"
+        case .outside: return "Go Outside"
+        case .pattern: return "Pattern Memory"
         }
     }
 
     var shortTitle: String {
         switch self {
-        case .mentalMath: return "Math"
-        case .patternMemory: return "Pattern"
-        case .read: return "Reading"
-        case .spanish: return "Spanish"
-        case .french: return "French"
-        case .german: return "German"
-        case .breathing: return "Breathing"
-        case .journaling: return "Journaling"
+        case .read: return "Read"
+        case .mindful: return "Mindful"
+        case .outside: return "Outside"
+        case .pattern: return "Pattern"
         }
     }
 
+    /// One compact line used in pickers and onboarding cards.
+    var tagline: String {
+        switch self {
+        case .read: return "Read a fresh article on a topic you choose."
+        case .mindful: return "A short guided meditation or breathwork session."
+        case .outside: return "Step outside and snap a photo of where you are."
+        case .pattern: return "Watch and repeat a short pattern."
+        }
+    }
+
+    /// Longer purpose copy for the preview / unlock subtitle.
     var description: String {
         switch self {
-        case .mentalMath:
-            return "Solve a quick arithmetic or number-pattern prompt."
-        case .patternMemory:
-            return "Watch and repeat a short pattern on a grid."
         case .read:
-            return "Read a short, interesting Wikipedia summary."
-        case .spanish:
-            return "Pick the meaning of one Spanish word."
-        case .french:
-            return "Pick the meaning of one French word."
-        case .german:
-            return "Pick the meaning of one German word."
-        case .breathing:
-            return "Take three guided breaths."
-        case .journaling:
-            return "Pause on a short reflection prompt."
-        }
-    }
-}
-
-/// The four top-level areas a user picks from. Each owns a set of `UnlockMethod` leaves.
-enum ExerciseCategory: String, CaseIterable, Identifiable {
-    case mentalStimulation
-    case reading
-    case language
-    case wellness
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .mentalStimulation: return "Mental Stimulation"
-        case .reading: return "Reading"
-        case .language: return "Language"
-        case .wellness: return "Wellness"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .mentalStimulation: return "Math and pattern memory"
-        case .reading: return "A short, interesting read"
-        case .language: return "Spanish, French, or German"
-        case .wellness: return "Breathing and journaling"
+            return "Open a hand-picked article from today, give it a real read, then continue."
+        case .mindful:
+            return "Open a free guided session, take a few minutes for yourself, then continue."
+        case .outside:
+            return "Go outside and take a photo of nature, the sky, or your street. We verify it right on your device."
+        case .pattern:
+            return "Watch a short sequence light up on a grid, then repeat it from memory."
         }
     }
 
     var systemImage: String {
         switch self {
-        case .mentalStimulation: return "brain.head.profile"
-        case .reading: return "book.fill"
-        case .language: return "character.bubble.fill"
-        case .wellness: return "wind"
+        case .read: return "book.fill"
+        case .mindful: return "leaf.fill"
+        case .outside: return "sun.max.fill"
+        case .pattern: return "square.grid.3x3.fill"
         }
     }
 
-    /// The sub-exercises shown under this category.
-    var exercises: [UnlockMethod] {
+    /// Steps shown in the "how it works" preview sheet.
+    var howItWorks: [String] {
         switch self {
-        case .mentalStimulation: return [.mentalMath, .patternMemory]
-        case .reading: return [.read]
-        case .language: return [.spanish, .french, .german]
-        case .wellness: return [.breathing, .journaling]
+        case .read:
+            return [
+                "We pick a fresh article from a topic you chose.",
+                "Open it and actually read for a moment.",
+                "Come back and continue to earn your time."
+            ]
+        case .mindful:
+            return [
+                "We open a free guided meditation or breathwork session.",
+                "Take a few minutes for yourself.",
+                "Come back and continue to earn your time."
+            ]
+        case .outside:
+            return [
+                "Step outside and take a photo of where you are.",
+                "Add it from your camera roll.",
+                "We check on-device that it's recent and shows the outdoors."
+            ]
+        case .pattern:
+            return [
+                "A short pattern lights up on the grid.",
+                "Repeat it from memory.",
+                "Get it right to earn your time."
+            ]
+        }
+    }
+
+    /// True for activities that hand the user off to external content. These complete on an
+    /// honor + dwell basis (we can't verify reading/meditating). `outside` is verified for real.
+    var isLinkOut: Bool {
+        switch self {
+        case .read, .mindful: return true
+        case .outside, .pattern: return false
         }
     }
 }

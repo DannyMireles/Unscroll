@@ -49,7 +49,7 @@ struct EmptyLocksView: View {
             VStack(spacing: 8) {
                 FirstLockGuideRow(number: 1, title: "Choose an app", text: "Use Apple's Screen Time picker.")
                 FirstLockGuideRow(number: 2, title: "Set the limit", text: "Decide when Cuewell steps in.")
-                FirstLockGuideRow(number: 3, title: "Pick the pause", text: "Mental, reading, language, or wellness exercises.")
+                FirstLockGuideRow(number: 3, title: "Pick the pause", text: "Read, get mindful, go outside, or train your memory.")
             }
 
             if let action {

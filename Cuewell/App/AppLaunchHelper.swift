@@ -55,7 +55,7 @@ enum AppLaunchHelper {
                 return
             }
 
-            NSLog("🔗 Cuewell: no launch candidates for '%@' — opening unavailable", displayName)
+            NSLog("🔗 Cuewell: no launch candidates for '%@', opening unavailable", displayName)
             onUnavailable?()
             return
         }

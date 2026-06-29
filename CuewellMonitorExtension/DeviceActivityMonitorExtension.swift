@@ -38,8 +38,11 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     }
 
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
-        // The daily limit was reached the first time, or a usage grant window was exhausted.
-        // Either way the lock should shield again.
+        // Two distinct triggers reach here:
+        //  • the all-day limit was reached for the first time today (.cuewellDaily), or
+        //  • an incremental grant window was spent (.unlockWindow), meaning the earned usage
+        //    ran out and the app should re-lock.
+        let isWindow = activity.cuewellUnlockWindowLockID != nil
         let lockID: UUID?
         if activity == .cuewellDaily {
             lockID = event.cuewellLockID
@@ -50,15 +53,32 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         }
         guard let lockID else { return }
 
-        var didMarkExceeded = false
+        var shouldNotify = false
         RuntimeStateStore.update { state in
-            guard !state.hasActiveUnlock(for: lockID) else { return }
+            if isWindow {
+                // The earned usage is spent; this lock re-locks now.
+                state.activeIncrementalLockIDs.remove(lockID)
+            } else {
+                // Daily limit callback. Ignore it while the app is in an active unlock
+                // (rest-of-day, or an incremental window the user just earned). This is the
+                // fix for the daily event re-firing and re-shielding an app that was unlocked.
+                guard !state.isUnlockActive(for: lockID) else { return }
+            }
+
             state.exceededLockIDs.insert(lockID)
             state.temporaryUnlocks.removeValue(forKey: lockID)
             state.unlockGrantedAt.removeValue(forKey: lockID)
-            didMarkExceeded = true
+
+            // De-dupe notifications against iOS occasionally delivering this callback twice.
+            let now = Date()
+            if let last = state.lastLimitNotifiedAt[lockID], now.timeIntervalSince(last) < 60 {
+                shouldNotify = false
+            } else {
+                state.lastLimitNotifiedAt[lockID] = now
+                shouldNotify = true
+            }
         }
-        if didMarkExceeded {
+        if shouldNotify {
             scheduleLimitReachedNotification(for: lockID)
         }
         ScreenTimeShieldStore.shieldApplications(for: SharedLockFileStore.load())

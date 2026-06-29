@@ -10,6 +10,14 @@ struct UnlockRuntimeState: Codable, Equatable {
     var temporaryUnlocks: [UUID: Date] = [:]
     var unlockGrantedAt: [UUID: Date] = [:]
     var incrementalUnlockCounts: [UUID: Int] = [:]
+    /// Locks with an active *incremental* usage window: the user did an activity and earned
+    /// more usage, which lasts until that much additional use is spent (the per-lock unlock
+    /// window event fires). While a lock is in this set it counts as unlocked, so a stray
+    /// daily-limit callback can't re-shield it out from under the user.
+    var activeIncrementalLockIDs: Set<UUID> = []
+    /// Last time a "limit reached" notification was sent per lock, used to de-dupe against
+    /// iOS occasionally delivering the threshold callback more than once.
+    var lastLimitNotifiedAt: [UUID: Date] = [:]
     var pendingUnlockLockID: UUID?
     /// Set to true by the shield extension whenever the user taps "Go To Activity",
     /// even when the extension cannot match the specific lock by token.
@@ -26,6 +34,13 @@ struct UnlockRuntimeState: Codable, Equatable {
     func hasActiveUnlock(for lockID: UUID, now: Date = Date()) -> Bool {
         guard let expiration = temporaryUnlocks[lockID] else { return false }
         return expiration > now
+    }
+
+    /// True when the app should be *open* right now for any reason: a rest-of-day grant that
+    /// hasn't expired, or an active incremental usage window. The shield and the daily-limit
+    /// callback both defer to this so an unlocked app stays unlocked.
+    func isUnlockActive(for lockID: UUID, now: Date = Date()) -> Bool {
+        hasActiveUnlock(for: lockID, now: now) || activeIncrementalLockIDs.contains(lockID)
     }
 
     mutating func removeExpiredUnlocks(now: Date = Date()) {
@@ -54,6 +69,8 @@ struct UnlockRuntimeState: Codable, Equatable {
         temporaryUnlocks = [:]
         unlockGrantedAt = [:]
         incrementalUnlockCounts = [:]
+        activeIncrementalLockIDs = []
+        lastLimitNotifiedAt = [:]
         pendingUnlockLockID = nil
         pendingUnlockTriggered = false
         suppressNextPendingPrompt = false
@@ -68,6 +85,8 @@ struct UnlockRuntimeState: Codable, Equatable {
         case temporaryUnlocks
         case unlockGrantedAt
         case incrementalUnlockCounts
+        case activeIncrementalLockIDs
+        case lastLimitNotifiedAt
         case pendingUnlockLockID
         case pendingUnlockTriggered
         case suppressNextPendingPrompt
@@ -81,6 +100,8 @@ struct UnlockRuntimeState: Codable, Equatable {
         temporaryUnlocks: [UUID: Date] = [:],
         unlockGrantedAt: [UUID: Date] = [:],
         incrementalUnlockCounts: [UUID: Int] = [:],
+        activeIncrementalLockIDs: Set<UUID> = [],
+        lastLimitNotifiedAt: [UUID: Date] = [:],
         pendingUnlockLockID: UUID? = nil,
         pendingUnlockTriggered: Bool = false,
         suppressNextPendingPrompt: Bool = false,
@@ -92,6 +113,8 @@ struct UnlockRuntimeState: Codable, Equatable {
         self.temporaryUnlocks = temporaryUnlocks
         self.unlockGrantedAt = unlockGrantedAt
         self.incrementalUnlockCounts = incrementalUnlockCounts
+        self.activeIncrementalLockIDs = activeIncrementalLockIDs
+        self.lastLimitNotifiedAt = lastLimitNotifiedAt
         self.pendingUnlockLockID = pendingUnlockLockID
         self.pendingUnlockTriggered = pendingUnlockTriggered
         self.suppressNextPendingPrompt = suppressNextPendingPrompt
@@ -106,6 +129,8 @@ struct UnlockRuntimeState: Codable, Equatable {
         temporaryUnlocks = try container.decodeIfPresent([UUID: Date].self, forKey: .temporaryUnlocks) ?? [:]
         unlockGrantedAt = try container.decodeIfPresent([UUID: Date].self, forKey: .unlockGrantedAt) ?? [:]
         incrementalUnlockCounts = try container.decodeIfPresent([UUID: Int].self, forKey: .incrementalUnlockCounts) ?? [:]
+        activeIncrementalLockIDs = try container.decodeIfPresent(Set<UUID>.self, forKey: .activeIncrementalLockIDs) ?? []
+        lastLimitNotifiedAt = try container.decodeIfPresent([UUID: Date].self, forKey: .lastLimitNotifiedAt) ?? [:]
         pendingUnlockLockID = try container.decodeIfPresent(UUID.self, forKey: .pendingUnlockLockID)
         pendingUnlockTriggered = try container.decodeIfPresent(Bool.self, forKey: .pendingUnlockTriggered) ?? false
         suppressNextPendingPrompt = try container.decodeIfPresent(Bool.self, forKey: .suppressNextPendingPrompt) ?? false

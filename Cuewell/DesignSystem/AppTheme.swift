@@ -51,17 +51,17 @@ enum AppTheme {
     // MARK: - Motion
 
     enum Motion {
-        static let quick = Animation.easeInOut(duration: 0.22)
-        static let page = Animation.easeInOut(duration: 0.34)
-        static let reveal = Animation.easeOut(duration: 0.46)
-        static let emphasis = Animation.easeOut(duration: 0.52)
-        static let popup = Animation.spring(response: 0.42, dampingFraction: 0.88, blendDuration: 0.08)
-        static let selection = Animation.spring(response: 0.34, dampingFraction: 0.72, blendDuration: 0.06)
-        static let backdrop = Animation.easeInOut(duration: 0.30)
+        static let quick = Animation.easeInOut(duration: 0.18)
+        static let page = Animation.easeInOut(duration: 0.26)
+        static let reveal = Animation.easeOut(duration: 0.32)
+        static let emphasis = Animation.easeOut(duration: 0.42)
+        static let popup = Animation.spring(response: 0.36, dampingFraction: 0.86, blendDuration: 0.06)
+        static let selection = Animation.spring(response: 0.30, dampingFraction: 0.74, blendDuration: 0.05)
+        static let backdrop = Animation.easeInOut(duration: 0.24)
 
-        static let emphasisDelay: UInt64 = 320_000_000
+        static let emphasisDelay: UInt64 = 180_000_000
 
-        static func staggerDelay(_ index: Int, step: Double = 0.055, cap: Double = 0.22) -> Double {
+        static func staggerDelay(_ index: Int, step: Double = 0.04, cap: Double = 0.12) -> Double {
             min(Double(max(index, 0)) * step, cap)
         }
     }
@@ -228,8 +228,8 @@ struct FlowAppear: ViewModifier {
     func body(content: Content) -> some View {
         content
             .opacity(isVisible ? 1 : 0)
-            .blur(radius: reduceMotion ? 0 : (isVisible ? 0 : 5))
-            .offset(y: reduceMotion ? 0 : (isVisible ? 0 : 8))
+            .blur(radius: reduceMotion ? 0 : (isVisible ? 0 : 3))
+            .offset(y: reduceMotion ? 0 : (isVisible ? 0 : 6))
             .animation((reduceMotion ? AppTheme.Motion.quick : AppTheme.Motion.reveal).delay(delay), value: isVisible)
             .onAppear { isVisible = true }
     }

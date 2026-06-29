@@ -8,6 +8,14 @@ final class LockStore: ObservableObject {
     @Published var lastErrorMessage: String?
     @Published private(set) var screenTimeAccessNeedsRenewal = false
 
+    init() {
+        // Seed from disk synchronously so the very first render already shows the user's
+        // real locks. Without this, `locks` starts empty and the Home screen briefly shows
+        // the "add your first lock" card before the async `load()` swaps in the real list —
+        // a visible flash on every cold launch. The file read is small and local.
+        locks = SharedLockFileStore.load()
+    }
+
     func load() async {
         locks = SharedLockFileStore.load()
         reconcileDisplayNames()
@@ -132,6 +140,11 @@ final class LockStore: ObservableObject {
         return updated
     }
 
+    /// Shields a lock immediately (the "Lock now" action), bypassing the usage-based limit.
+    func lockNow(_ lock: AppLock) async {
+        await RestrictionEngine.shared.forceLock(lock)
+    }
+
     func togglePause(_ lock: AppLock) async {
         guard let index = locks.firstIndex(where: { $0.id == lock.id }) else { return }
         locks[index].isPaused.toggle()
@@ -146,6 +159,8 @@ final class LockStore: ObservableObject {
             state.temporaryUnlocks.removeValue(forKey: lock.id)
             state.unlockGrantedAt.removeValue(forKey: lock.id)
             state.incrementalUnlockCounts.removeValue(forKey: lock.id)
+            state.activeIncrementalLockIDs.remove(lock.id)
+            state.lastLimitNotifiedAt.removeValue(forKey: lock.id)
             if state.pendingUnlockLockID == lock.id {
                 state.pendingUnlockLockID = nil
                 state.pendingUnlockTriggered = false

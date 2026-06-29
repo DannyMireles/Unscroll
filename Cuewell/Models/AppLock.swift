@@ -73,19 +73,20 @@ struct AppLock: Identifiable, Codable, Equatable {
 
     /// The first selected exercise — used for compact labels and back-compat encoding.
     var primaryMethod: UnlockMethod {
-        unlockMethods.first ?? .mentalMath
+        unlockMethods.first ?? .read
     }
 
-    /// Picks one of the selected exercises at random for a single unlock.
+    /// Picks one of the selected exercises at random. Kept as a fallback; the unlock flow now
+    /// lets the user choose when a lock has more than one activity (`ActivityChooserView`).
     func resolvedForUnlock() -> UnlockMethod {
-        unlockMethods.randomElement() ?? .mentalMath
+        unlockMethods.randomElement() ?? .read
     }
 
     /// Keeps the list non-empty and de-duplicated while preserving the user's order.
     private static func sanitized(_ methods: [UnlockMethod]) -> [UnlockMethod] {
         var seen = Set<UnlockMethod>()
         let ordered = methods.filter { seen.insert($0).inserted }
-        return ordered.isEmpty ? [.mentalMath] : ordered
+        return ordered.isEmpty ? [.read] : ordered
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -112,15 +113,16 @@ struct AppLock: Identifiable, Codable, Equatable {
         appIconURL = try container.decodeIfPresent(String.self, forKey: .appIconURL)
         dailyLimitMinutes = try container.decode(Int.self, forKey: .dailyLimitMinutes)
 
-        // New format stores an array; older locks stored a single `unlockMethod` string
-        // (which may be a now-removed case like "random").
-        if let methods = try container.decodeIfPresent([UnlockMethod].self, forKey: .unlockMethods),
-           !methods.isEmpty {
-            unlockMethods = Self.sanitized(methods)
+        // Decode the methods as raw strings and map each through migration, so locks created
+        // before the redesign (whose raw values like "mentalMath"/"reflect" no longer exist as
+        // cases) never fail to decode — they migrate to a surviving activity instead.
+        if let rawMethods = try container.decodeIfPresent([String].self, forKey: .unlockMethods),
+           !rawMethods.isEmpty {
+            unlockMethods = Self.sanitized(rawMethods.flatMap { Self.migrate(legacyRaw: $0) })
         } else if let legacyRaw = try container.decodeIfPresent(String.self, forKey: .unlockMethod) {
-            unlockMethods = Self.migrate(legacyRaw: legacyRaw)
+            unlockMethods = Self.sanitized(Self.migrate(legacyRaw: legacyRaw))
         } else {
-            unlockMethods = [.mentalMath]
+            unlockMethods = [.read]
         }
 
         unlockRewardMode = try container.decodeIfPresent(UnlockRewardMode.self, forKey: .unlockRewardMode) ?? .incrementalByLimit
@@ -146,12 +148,21 @@ struct AppLock: Identifiable, Codable, Equatable {
         try container.encode(updatedAt, forKey: .updatedAt)
     }
 
-    /// Maps a legacy single-method raw value onto the new multi-select list.
+    /// Maps any stored method raw value — current or legacy — onto the surviving four
+    /// activities. Removed exercises fold into their nearest replacement:
+    /// breathing/journaling → mindfulness, math → pattern, the languages → read.
     private static func migrate(legacyRaw: String) -> [UnlockMethod] {
-        if legacyRaw == "random" {
-            return UnlockMethod.allSelectable
+        switch legacyRaw {
+        case "patternMemory": return [.pattern]
+        case "read": return [.read]
+        case "mindful": return [.mindful]
+        case "outside": return [.outside]
+        case "breathing", "journaling": return [.mindful]
+        case "mentalMath": return [.pattern]
+        case "reflect", "spanish", "french", "german": return [.read]
+        case "random": return UnlockMethod.allSelectable
+        default: return [UnlockMethod(rawValue: legacyRaw)].compactMap { $0 }
         }
-        return [UnlockMethod(rawValue: legacyRaw) ?? .mentalMath]
     }
 
     var limitLabel: String {

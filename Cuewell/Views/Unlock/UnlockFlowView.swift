@@ -3,36 +3,66 @@ import SwiftUI
 struct UnlockFlowView: View {
     let lock: AppLock
     let onComplete: () -> Void
-    @State private var resolvedMethod: UnlockMethod
+    @State private var chosenMethod: UnlockMethod?
 
     init(lock: AppLock, onComplete: @escaping () -> Void) {
         self.lock = lock
         self.onComplete = onComplete
-        _resolvedMethod = State(initialValue: lock.resolvedForUnlock())
+        // Skip the chooser when there's only one activity to do.
+        _chosenMethod = State(initialValue: lock.unlockMethods.count == 1 ? lock.unlockMethods.first : nil)
+    }
+
+    /// The chooser is only meaningful when there's more than one activity to pick from.
+    private var canChooseAnother: Bool {
+        lock.unlockMethods.count > 1
     }
 
     var body: some View {
         ZStack {
             AppBackground()
 
-            switch resolvedMethod {
-            case .mentalMath:
-                MathUnlockView(lock: lock, onComplete: onComplete)
-            case .patternMemory:
-                PatternMemoryUnlockView(lock: lock, onComplete: onComplete)
-            case .breathing:
-                BreathingUnlockView(lock: lock, onComplete: onComplete)
-            case .read:
-                ReadUnlockView(lock: lock, onComplete: onComplete)
-            case .spanish:
-                LanguageUnlockView(lock: lock, language: .spanish, onComplete: onComplete)
-            case .french:
-                LanguageUnlockView(lock: lock, language: .french, onComplete: onComplete)
-            case .german:
-                LanguageUnlockView(lock: lock, language: .german, onComplete: onComplete)
-            case .journaling:
-                JournalingUnlockView(lock: lock, onComplete: onComplete)
+            if let method = chosenMethod {
+                activityView(for: method)
+                    .transition(.opacity)
+            } else {
+                ActivityChooserView(lock: lock) { picked in
+                    withAnimation(AppTheme.Motion.page) { chosenMethod = picked }
+                }
+                .transition(.opacity)
             }
+        }
+        .overlay(alignment: .topLeading) {
+            if chosenMethod != nil, canChooseAnother {
+                Button {
+                    Haptics.softTap()
+                    withAnimation(AppTheme.Motion.page) { chosenMethod = nil }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(AppTheme.accentOnChrome)
+                        .frame(width: 40, height: 40)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay { Circle().stroke(AppTheme.chromeStroke, lineWidth: 1) }
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 18)
+                .padding(.top, 8)
+                .accessibilityLabel("Choose a different activity")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func activityView(for method: UnlockMethod) -> some View {
+        switch method {
+        case .read:
+            ReadUnlockView(lock: lock, onComplete: onComplete)
+        case .mindful:
+            MindfulnessUnlockView(lock: lock, onComplete: onComplete)
+        case .outside:
+            OutsideUnlockView(lock: lock, onComplete: onComplete)
+        case .pattern:
+            PatternMemoryUnlockView(lock: lock, onComplete: onComplete)
         }
     }
 }

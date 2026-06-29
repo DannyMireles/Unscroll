@@ -6,6 +6,7 @@ struct LockCard: View {
     let onInfo: () -> Void
     let onEdit: () -> Void
     let onPause: () -> Void
+    let onLockNow: () -> Void
     let onDelete: () -> Void
     let onOpenApp: () -> Void
     let onCapturedAppName: (String) -> Void
@@ -61,6 +62,12 @@ struct LockCard: View {
                     onPause()
                 } label: {
                     Label(lock.isPaused ? "Resume" : "Pause", systemImage: lock.isPaused ? "play.fill" : "pause.fill")
+                }
+                if !lock.isPaused {
+                    Button {
+                        Haptics.success()
+                        onLockNow()
+                    } label: { Label("Lock now", systemImage: "lock.fill") }
                 }
                 Button(role: .destructive) {
                     Haptics.softTap()
@@ -178,16 +185,14 @@ struct LockInfoView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Counted while you're actually using the app — not while it sits idle.")
+                Text("Counted while you're actually using the app, not while it sits idle.")
                     .font(AppTheme.Typography.caption)
                     .foregroundStyle(.secondary)
 
-                if #unavailable(iOS 17.4) {
-                    Text("On this iOS version, today's count starts when the lock is created or edited.")
-                        .font(AppTheme.Typography.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text("Today's count starts when the lock is created. To block an app you've already used a lot today, open the lock's menu and tap Lock now.")
+                    .font(AppTheme.Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .glassCard(padding: 16)
         }

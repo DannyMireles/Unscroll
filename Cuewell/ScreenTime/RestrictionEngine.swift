@@ -96,15 +96,21 @@ actor RestrictionEngine {
             return
         }
 
+        // `includesPastActivity` counts the app's *whole day* of use against the limit, so a
+        // lock set after you're already over (e.g. 10-min limit when you've used 37 today)
+        // shields right away — the daily-budget behavior the user expects. This used to cause
+        // the notification spam / "unlock won't stick" bug, because re-arming re-fired the
+        // threshold and re-shielded freshly-unlocked apps. That's now safe: an active unlock is
+        // tracked in runtime state (`isUnlockActive`), the daily callback defers to it, and the
+        // monitor is no longer re-armed on plain foregrounds.
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         for lock in activeLocks {
-            let threshold = threshold(for: lock)
             if #available(iOS 17.4, *) {
                 events[.lockThreshold(lock.id)] = DeviceActivityEvent(
                     applications: lock.selection.applicationTokens,
                     categories: lock.selection.categoryTokens,
                     webDomains: lock.selection.webDomainTokens,
-                    threshold: threshold,
+                    threshold: threshold(for: lock),
                     includesPastActivity: true
                 )
             } else {
@@ -112,7 +118,7 @@ actor RestrictionEngine {
                     applications: lock.selection.applicationTokens,
                     categories: lock.selection.categoryTokens,
                     webDomains: lock.selection.webDomainTokens,
-                    threshold: threshold
+                    threshold: threshold(for: lock)
                 )
             }
         }
@@ -133,14 +139,23 @@ actor RestrictionEngine {
         }
     }
 
-    func markLimitExceeded(for lockID: UUID) async {
+    /// Locks an app *right now*, regardless of how much it's been used today. The usage-based
+    /// daily limit can't read prior usage instantly (and iOS threshold callbacks lag), so this
+    /// gives the user a deterministic "shield it immediately" override. Any active grant or
+    /// pending incremental window for this lock is cleared so it can't quietly re-open.
+    func forceLock(_ lock: AppLock) async {
         RuntimeStateStore.update { state in
-            state.exceededLockIDs.insert(lockID)
-            if !state.hasActiveUnlock(for: lockID) {
-                state.temporaryUnlocks.removeValue(forKey: lockID)
-                state.unlockGrantedAt.removeValue(forKey: lockID)
+            state.exceededLockIDs.insert(lock.id)
+            state.temporaryUnlocks.removeValue(forKey: lock.id)
+            state.unlockGrantedAt.removeValue(forKey: lock.id)
+            state.activeIncrementalLockIDs.remove(lock.id)
+            if state.pendingUnlockLockID == lock.id {
+                state.pendingUnlockLockID = nil
+                state.pendingUnlockTriggered = false
+                state.suppressNextPendingPrompt = false
             }
         }
+        center.stopMonitoring([.unlockWindow(lock.id)])
         await reapplyCurrentShields()
     }
 
@@ -176,9 +191,13 @@ actor RestrictionEngine {
                 let tomorrow = Calendar.current.startOfDay(for: now).addingTimeInterval(24 * 60 * 60)
                 state.temporaryUnlocks[lock.id] = tomorrow
                 state.unlockGrantedAt[lock.id] = now
+                state.activeIncrementalLockIDs.remove(lock.id)
             } else {
                 state.temporaryUnlocks.removeValue(forKey: lock.id)
                 state.unlockGrantedAt[lock.id] = now
+                // Mark the incremental window active so the daily callback can't re-shield it;
+                // only the window-spent event (or the daily reset) clears this.
+                state.activeIncrementalLockIDs.insert(lock.id)
             }
         }
 
@@ -244,27 +263,41 @@ actor RestrictionEngine {
 
 /// Tracks the configuration the daily Screen Time monitor was last armed with, so the
 /// engine can avoid needlessly restarting it. Restarting resets the usage counters the
-/// limit thresholds depend on, which previously kept apps from ever being shielded.
+/// limit thresholds depend on, which would otherwise keep apps from ever reaching the limit.
 ///
-/// The signature deliberately keys off each active lock's `updatedAt` rather than the
-/// opaque `FamilyActivitySelection`, whose encoding isn't guaranteed to be byte-stable
-/// across runs. Every mutation that changes what the monitor should watch (add, edit,
-/// limit change, pause/unpause, delete) bumps `updatedAt` or changes the active-lock set,
-/// so the signature changes exactly when — and only when — a real re-arm is required.
+/// The signature is built from only the fields that actually change *what the monitor
+/// watches*: each active lock's id, its daily limit, and a stable encoding of its selected
+/// tokens. It deliberately ignores cosmetic fields like `appDisplayName`/`updatedAt`, which
+/// get bumped by automatic identity resolution — keying off those caused spurious re-arms
+/// (and counter resets) during normal use. Encoding each token individually and sorting the
+/// results makes the signature order-independent and byte-stable across runs.
 enum DailyMonitorConfig {
     private static let key = "cuewell.dailyMonitor.signature"
 
     private struct Entry: Codable {
         let id: UUID
         let limit: Int
-        let updatedAt: Date
+        let tokens: [String]
     }
 
     static func signature(for activeLocks: [AppLock]) -> Data {
+        let encoder = JSONEncoder()
         let entries = activeLocks
             .sorted { $0.id.uuidString < $1.id.uuidString }
-            .map { Entry(id: $0.id, limit: max(1, $0.dailyLimitMinutes), updatedAt: $0.updatedAt) }
-        return (try? JSONEncoder().encode(entries)) ?? Data()
+            .map { lock -> Entry in
+                var tokens: [String] = []
+                for token in lock.selection.applicationTokens {
+                    if let data = try? encoder.encode(token) { tokens.append("a:" + data.base64EncodedString()) }
+                }
+                for token in lock.selection.categoryTokens {
+                    if let data = try? encoder.encode(token) { tokens.append("c:" + data.base64EncodedString()) }
+                }
+                for token in lock.selection.webDomainTokens {
+                    if let data = try? encoder.encode(token) { tokens.append("w:" + data.base64EncodedString()) }
+                }
+                return Entry(id: lock.id, limit: max(1, lock.dailyLimitMinutes), tokens: tokens.sorted())
+            }
+        return (try? encoder.encode(entries)) ?? Data()
     }
 
     static func stored() -> Data? {

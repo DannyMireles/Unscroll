@@ -47,14 +47,12 @@ struct AddLockView: View {
         UnlockMethod.allSelectable.filter { methods.contains($0) }
     }
 
-    /// Default selection for a new lock = the exercises of the categories the user picked
-    /// during onboarding (falls back to Mental Math if none were chosen).
+    /// Default selection for a new lock = the activities the user picked during onboarding
+    /// (falls back to Read if none were chosen).
     private static func initialMethods() -> Set<UnlockMethod> {
-        let raw = UserDefaults.standard.string(forKey: "preferredCategories") ?? ""
-        let leaves = raw.split(separator: ",")
-            .compactMap { ExerciseCategory(rawValue: String($0)) }
-            .flatMap { $0.exercises }
-        return leaves.isEmpty ? [.mentalMath] : Set(leaves)
+        let raw = UserDefaults.standard.string(forKey: "preferredMethods") ?? ""
+        let chosen = raw.split(separator: ",").compactMap { UnlockMethod(rawValue: String($0)) }
+        return chosen.isEmpty ? [.read] : Set(chosen)
     }
 
     private var primaryDisabled: Bool {
@@ -845,21 +843,21 @@ struct UnlockMethodSelectionGrid: View {
                     .font(AppTheme.Typography.captionSemibold)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(selection.count > 1 ? "One picked at random each unlock" : "Tap a category to add more")
+                Text(selection.count > 1 ? "You choose which to do each time" : "Pick one or more")
                     .font(AppTheme.Typography.caption)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 2)
 
-            ForEach(ExerciseCategory.allCases) { category in
-                CategorySection(
-                    category: category,
-                    selection: $selection,
-                    onPreview: onPreview,
-                    toggleExercise: toggle,
-                    toggleCategory: toggleCategory
-                )
+            ForEach(UnlockMethod.allSelectable) { method in
+                ChallengeChoiceRow(
+                    method: method,
+                    isSelected: selection.contains(method),
+                    onPreview: onPreview.map { handler in { handler(method) } }
+                ) {
+                    toggle(method)
+                }
             }
         }
     }
@@ -878,148 +876,8 @@ struct UnlockMethodSelectionGrid: View {
         Haptics.softTap()
     }
 
-    private func toggleCategory(_ category: ExerciseCategory) {
-        let leaves = Set(category.exercises)
-        if leaves.isSubset(of: selection) {
-            // All on → turn the category off, but never leave zero selected overall.
-            let remaining = selection.subtracting(leaves)
-            guard !remaining.isEmpty else {
-                Haptics.retry()
-                return
-            }
-            selection = remaining
-        } else {
-            selection.formUnion(leaves)
-        }
-        Haptics.softTap()
-    }
 }
 
-/// One category, collapsible. Collapsed by default to keep the page clean — tap the
-/// header to reveal and pick its sub-exercises. Shared by the Add and Edit lock flows.
-private struct CategorySection: View {
-    let category: ExerciseCategory
-    @Binding var selection: Set<UnlockMethod>
-    var onPreview: ((UnlockMethod) -> Void)?
-    let toggleExercise: (UnlockMethod) -> Void
-    let toggleCategory: (ExerciseCategory) -> Void
-
-    @State private var isExpanded = false
-
-    private var selectedInCategory: [UnlockMethod] {
-        category.exercises.filter { selection.contains($0) }
-    }
-    private var selectedCount: Int { selectedInCategory.count }
-    private var allOn: Bool { selectedCount == category.exercises.count }
-    private var anyOn: Bool { selectedCount > 0 }
-    private var hasMultiple: Bool { category.exercises.count > 1 }
-
-    /// When collapsed, the secondary line names what's selected (or the category blurb).
-    private var summaryLine: String {
-        guard anyOn else { return category.subtitle }
-        return selectedInCategory.map(\.shortTitle).joined(separator: ", ")
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            header
-
-            if isExpanded {
-                VStack(spacing: 10) {
-                    if hasMultiple {
-                        selectAllRow
-                    }
-
-                    ForEach(category.exercises) { exercise in
-                        ChallengeChoiceRow(
-                            method: exercise,
-                            isSelected: selection.contains(exercise),
-                            onPreview: onPreview.map { handler in { handler(exercise) } }
-                        ) {
-                            toggleExercise(exercise)
-                        }
-                    }
-                }
-                .padding(.top, 2)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-    }
-
-    private var header: some View {
-        Button {
-            Haptics.softTap()
-            withAnimation(AppTheme.Motion.page) { isExpanded.toggle() }
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: category.systemImage)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(anyOn ? AppTheme.accentOnChrome : .secondary)
-                    .frame(width: 38, height: 38)
-                    .background(
-                        (anyOn ? AppTheme.accentSoft : Color.secondary.opacity(0.08)),
-                        in: RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    )
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(category.title)
-                        .font(AppTheme.Typography.headlineMedium)
-                        .foregroundStyle(.primary)
-                    Text(summaryLine)
-                        .font(AppTheme.Typography.caption)
-                        .foregroundStyle(anyOn ? AppTheme.accentOnChrome : .secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 4)
-
-                if anyOn {
-                    Text("\(selectedCount)")
-                        .font(AppTheme.Typography.captionSemibold)
-                        .foregroundStyle(AppTheme.accentOnChrome)
-                        .frame(minWidth: 22, minHeight: 22)
-                        .padding(.horizontal, 5)
-                        .background(AppTheme.accentSoft, in: Capsule())
-                }
-
-                Image(systemName: "chevron.down")
-                    .font(.footnote.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: AppTheme.cornerLarge, style: .continuous)
-                    .stroke(anyOn ? AppTheme.accent.opacity(0.5) : AppTheme.chromeStroke, lineWidth: anyOn ? 1.5 : 1)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .animation(AppTheme.Motion.selection, value: anyOn)
-    }
-
-    private var selectAllRow: some View {
-        Button {
-            toggleCategory(category)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: allOn ? "checkmark.circle.fill" : "circle")
-                    .font(.subheadline)
-                    .foregroundStyle(allOn ? AppTheme.accent : Color.secondary.opacity(0.5))
-                Text(allOn ? "Clear all" : "Select all")
-                    .font(AppTheme.Typography.captionSemibold)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 2)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
 
 private struct ChallengeChoiceRow: View {
     let method: UnlockMethod
@@ -1031,7 +889,7 @@ private struct ChallengeChoiceRow: View {
         HStack(spacing: 10) {
             Button(action: onSelect) {
                 HStack(spacing: 12) {
-                    Image(systemName: method.setupIcon)
+                    Image(systemName: method.systemImage)
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(isSelected ? AppTheme.accentOnChrome : .secondary)
                         .frame(width: 34, height: 34)
@@ -1044,7 +902,7 @@ private struct ChallengeChoiceRow: View {
                         Text(method.title)
                             .font(AppTheme.Typography.headlineMedium)
                             .foregroundStyle(.primary)
-                        Text(method.shortSetupDescription)
+                        Text(method.tagline)
                             .font(AppTheme.Typography.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
@@ -1090,31 +948,6 @@ private struct ChallengeChoiceRow: View {
     }
 }
 
-private extension UnlockMethod {
-    var setupIcon: String {
-        switch self {
-        case .mentalMath: return "function"
-        case .patternMemory: return "square.grid.3x3"
-        case .read: return "book.fill"
-        case .spanish, .french, .german: return "character.bubble.fill"
-        case .breathing: return "wind"
-        case .journaling: return "square.and.pencil"
-        }
-    }
-
-    var shortSetupDescription: String {
-        switch self {
-        case .mentalMath: return "A quick number prompt."
-        case .patternMemory: return "Watch and repeat taps."
-        case .read: return "Read a short article."
-        case .spanish: return "Learn one Spanish word."
-        case .french: return "Learn one French word."
-        case .german: return "Learn one German word."
-        case .breathing: return "Three guided breaths."
-        case .journaling: return "Pause on a prompt."
-        }
-    }
-}
 
 // MARK: - Challenge previews
 
@@ -1135,14 +968,9 @@ struct MethodPreviewView: View {
                             .padding(.horizontal, 24)
                             .flowItem(0)
 
-                        preview
+                        howItWorks
                             .padding(.horizontal, 20)
                             .flowItem(1)
-
-                        Text("Preview only.")
-                            .font(AppTheme.Typography.caption)
-                            .foregroundStyle(.secondary)
-                            .flowItem(2)
                     }
                     .padding(.top, 18)
                     .padding(.bottom, 26)
@@ -1159,210 +987,29 @@ struct MethodPreviewView: View {
         }
     }
 
-    @ViewBuilder
-    private var preview: some View {
-        switch method {
-        case .mentalMath: MathPreview()
-        case .patternMemory: PatternPreview()
-        case .breathing: BreathingPreview()
-        case .read: ReadPreview()
-        case .spanish: LanguagePreview(language: .spanish)
-        case .french: LanguagePreview(language: .french)
-        case .german: LanguagePreview(language: .german)
-        case .journaling: JournalingPreview()
-        }
-    }
-}
-
-private struct MathPreview: View {
-    @State private var problem = MathChallengeEngine.generate()
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Text(problem.prompt)
-                .font(.system(size: 44, weight: .light, design: .rounded))
-                .minimumScaleFactor(0.5)
-                .lineLimit(1)
-                .contentTransition(.numericText())
-            Text("Answer: \(problem.answer)")
-                .font(.headline.weight(.medium))
-                .foregroundStyle(AppTheme.accentOnChrome)
-        }
-        .frame(maxWidth: .infinity)
-        .glassCard()
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_200_000_000)
-                withAnimation { problem = MathChallengeEngine.generate() }
-            }
-        }
-    }
-}
-
-private struct PatternPreview: View {
-    private let sequence = [0, 4, 8, 5]
-    @State private var highlighted: Int?
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("Watch, then repeat the taps")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
-                ForEach(0..<9, id: \.self) { index in
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(highlighted == index ? AppTheme.accent : Color.secondary.opacity(0.12))
-                        .aspectRatio(1, contentMode: .fit)
-                        .scaleEffect(highlighted == index ? 1.06 : 1.0)
-                        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: highlighted)
-                }
-            }
-            .frame(maxWidth: 260)
-        }
-        .frame(maxWidth: .infinity)
-        .glassCard()
-        .task {
-            while !Task.isCancelled {
-                for tile in sequence {
-                    highlighted = tile
-                    try? await Task.sleep(nanoseconds: 480_000_000)
-                    highlighted = nil
-                    try? await Task.sleep(nanoseconds: 180_000_000)
-                }
-                try? await Task.sleep(nanoseconds: 900_000_000)
-            }
-        }
-    }
-}
-
-private struct BreathingPreview: View {
-    @State private var expanded = false
-
-    var body: some View {
-        VStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .fill(AppTheme.accent.opacity(0.14))
-                    .frame(width: 160, height: 160)
-                    .scaleEffect(expanded ? 1.0 : 0.6)
-                Circle()
-                    .stroke(AppTheme.accent.opacity(0.35), lineWidth: 1)
-                    .frame(width: 164, height: 164)
-                Text(expanded ? "Inhale" : "Exhale")
-                    .font(.title3.weight(.light))
-            }
-            .animation(.easeInOut(duration: expanded ? 3.6 : 4.4), value: expanded)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .glassCard()
-        .task {
-            while !Task.isCancelled {
-                expanded = true
-                try? await Task.sleep(nanoseconds: 3_600_000_000)
-                expanded = false
-                try? await Task.sleep(nanoseconds: 4_400_000_000)
-            }
-        }
-    }
-}
-
-private struct LanguagePreview: View {
-    let language: LearnableLanguage
-    @State private var card: LanguageCard
-    @State private var choices: [String]
-    @State private var revealed = false
-
-    init(language: LearnableLanguage) {
-        self.language = language
-        // Use the instant bundled fallback so the preview needs no network.
-        let sample = LanguageEngine.fallbackCard(for: language, avoiding: nil)
-        _card = State(initialValue: sample)
-        _choices = State(initialValue: LanguageEngine.choices(for: sample))
-    }
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Text(card.word)
-                .font(.system(.largeTitle, design: .rounded).weight(.semibold))
-
-            ForEach(choices, id: \.self) { choice in
-                let correct = LanguageEngine.isCorrectAnswer(choice, for: card)
-                HStack {
-                    Text(choice)
-                        .font(.headline.weight(.medium))
-                    Spacer()
-                    if revealed && correct {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(AppTheme.accent)
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(
-                    (revealed && correct) ? AppTheme.accentSoft : Color.secondary.opacity(0.10),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                )
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .glassCard()
-        .task {
-            try? await Task.sleep(nanoseconds: 1_400_000_000)
-            withAnimation { revealed = true }
-        }
-    }
-}
-
-private struct JournalingPreview: View {
-    @State private var prompt = WellnessPromptEngine.fallbackPrompt()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Journaling", systemImage: "square.and.pencil")
+    private var howItWorks: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("How it works", systemImage: method.systemImage)
                 .font(AppTheme.Typography.captionSemibold)
                 .foregroundStyle(AppTheme.accentOnChrome)
 
-            Text(prompt.text)
-                .font(.system(.title3, design: .rounded).weight(.medium))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("In the unlock, sit with the prompt for a few seconds, then continue.")
-                .font(AppTheme.Typography.caption)
-                .foregroundStyle(.secondary)
+            ForEach(Array(method.howItWorks.enumerated()), id: \.offset) { index, step in
+                HStack(alignment: .top, spacing: 12) {
+                    Text("\(index + 1)")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(AppTheme.accentOnChrome)
+                        .frame(width: 26, height: 26)
+                        .background(AppTheme.accentSoft, in: Circle())
+                    Text(step)
+                        .font(AppTheme.Typography.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard()
     }
 }
 
-private struct ReadPreview: View {
-    @State private var article = WikipediaReadEngine.fallbackArticle()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Read Something", systemImage: "book.fill")
-                .font(AppTheme.Typography.captionSemibold)
-                .foregroundStyle(AppTheme.accentOnChrome)
-
-            Text(article.title)
-                .font(AppTheme.Typography.title2)
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text(article.extract)
-                .font(AppTheme.Typography.subheadline)
-                .foregroundStyle(.secondary)
-                .lineSpacing(3)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("In the unlock, read for a few seconds, then continue. Tap for a fresh article anytime.")
-                .font(AppTheme.Typography.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-    }
-}

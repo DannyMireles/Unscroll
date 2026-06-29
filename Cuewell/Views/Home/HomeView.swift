@@ -18,6 +18,8 @@ struct HomeView: View {
     @State private var showScreenTimeRequiredAlert = false
     @State private var unavailableLock: AppLock?
     @State private var linkSetupLock: AppLock?
+    @State private var lockedNowLock: AppLock?
+    @StateObject private var motionStats = MotionStatsProvider()
     @State private var didAutoScrollToFirstLockGuide = false
     @State private var showFirstLockSpotlight = false
     @State private var isRequestingNotificationPermission = false
@@ -34,7 +36,7 @@ struct HomeView: View {
                         .blur(radius: showFirstLockSpotlight ? 3 : 0)
                         .opacity(showFirstLockSpotlight ? 0.62 : 1)
                         .flowItem(0)
-                    TodayProgressCard(stats: unlockCoordinator.stats)
+                    TodayProgressCard(stats: unlockCoordinator.stats, miles: motionStats.milesToday)
                         .blur(radius: showFirstLockSpotlight ? 3 : 0)
                         .opacity(showFirstLockSpotlight ? 0.62 : 1)
                         .flowItem(1)
@@ -107,15 +109,31 @@ struct HomeView: View {
                 .transition(.flowPopup)
                 .zIndex(22)
             }
+
+            if let lockedNowLock {
+                GlassNoticeOverlay(
+                    title: "Locked",
+                    message: "\(displayNameForAlert(lockedNowLock)) is blocked now. Open it to do an activity and earn time back."
+                ) {
+                    withAnimation(AppTheme.Motion.popup) {
+                        self.lockedNowLock = nil
+                    }
+                }
+                .transition(.flowPopup)
+                .zIndex(23)
+            }
         }
         .animation(AppTheme.Motion.popup, value: linkSetupLock?.id)
         .animation(AppTheme.Motion.popup, value: showScreenTimeRequiredAlert)
         .animation(AppTheme.Motion.popup, value: unavailableLock?.id)
+        .animation(AppTheme.Motion.popup, value: lockedNowLock?.id)
         .task {
             await refreshNotificationStatus()
+            motionStats.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
             Task { await refreshNotificationStatus() }
+            motionStats.refresh()
         }
         .sheet(isPresented: $isAddingLock) {
             AddLockView(onCreated: { _ in
@@ -262,6 +280,7 @@ struct HomeView: View {
                     onInfo: { infoLock = lock },
                     onEdit: { editingLock = lock },
                     onPause: { handlePauseToggle(for: lock) },
+                    onLockNow: { handleLockNow(lock) },
                     onDelete: { Task { await lockStore.delete(lock) } },
                     onOpenApp: { openOrUnlock(lock) },
                     onCapturedAppName: { name in applyCapturedAppName(name, for: lock) }
@@ -301,6 +320,15 @@ struct HomeView: View {
         }
 
         Task { await lockStore.togglePause(lock) }
+    }
+
+    private func handleLockNow(_ lock: AppLock) {
+        Task {
+            await lockStore.lockNow(lock)
+            withAnimation(AppTheme.Motion.popup) {
+                lockedNowLock = lock
+            }
+        }
     }
 
     private func showUpgradePrompt() {
@@ -470,6 +498,7 @@ struct HomeView: View {
 
 private struct TodayProgressCard: View {
     let stats: DailyStats
+    let miles: Double?
 
     var body: some View {
         VStack(spacing: 12) {
@@ -477,8 +506,14 @@ private struct TodayProgressCard: View {
             HStack(spacing: 12) {
                 StatTile(value: "\(stats.sessionsToday)", label: "Sessions today", systemImage: "checkmark.seal.fill")
                 StatTile(value: "\(stats.minutesToday)", label: "Minutes earned", systemImage: "clock.fill")
+                StatTile(value: milesValue, label: "Miles today", systemImage: "figure.walk")
             }
         }
+    }
+
+    private var milesValue: String {
+        guard let miles else { return "0.0" }
+        return miles < 10 ? String(format: "%.1f", miles) : String(format: "%.0f", miles)
     }
 
     private var isActive: Bool { stats.streak > 0 }
@@ -531,7 +566,7 @@ private struct TodayProgressCard: View {
     private var streakMessage: String {
         switch stats.streak {
         case 0: return "Start your streak today"
-        case 1: return "Great start — come back tomorrow"
+        case 1: return "Great start. Come back tomorrow"
         case 2...4: return "You're building a habit"
         default: return "You're on a roll!"
         }

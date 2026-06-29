@@ -11,7 +11,7 @@ enum ScreenTimeShieldStore {
             .filter { lock in
                 !lock.isPaused &&
                 state.exceededLockIDs.contains(lock.id) &&
-                !state.hasActiveUnlock(for: lock.id)
+                !state.isUnlockActive(for: lock.id)
             }
 
         let shieldedApplications = shieldedLocks.reduce(into: Set<ApplicationToken>()) { result, lock in

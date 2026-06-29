@@ -1,3 +1,4 @@
+import CoreMotion
 import Foundation
 
 @MainActor
@@ -284,5 +285,27 @@ enum DailyStatsStore {
     private static func save(_ stats: DailyStats) {
         guard let defaults, let data = try? JSONEncoder().encode(stats) else { return }
         defaults.set(data, forKey: key)
+    }
+}
+
+// MARK: - Motion
+
+/// Reads today's walking distance from the iPhone's built-in motion coprocessor (CMPedometer)
+/// to celebrate time spent outside. On-device only; the first query prompts for Motion & Fitness
+/// access. If unavailable or denied, `milesToday` stays nil and the UI shows a dash.
+@MainActor
+final class MotionStatsProvider: ObservableObject {
+    @Published private(set) var milesToday: Double?
+
+    private let pedometer = CMPedometer()
+
+    func refresh() {
+        guard CMPedometer.isDistanceAvailable() else { return }
+        let start = Calendar.current.startOfDay(for: Date())
+        pedometer.queryPedometerData(from: start, to: Date()) { [weak self] data, error in
+            guard let meters = data?.distance?.doubleValue, error == nil else { return }
+            let miles = meters / 1609.344
+            Task { @MainActor in self?.milesToday = miles }
+        }
     }
 }
